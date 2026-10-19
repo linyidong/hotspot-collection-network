@@ -161,41 +161,47 @@ rn.setPixelRatio(Math.min(devicePixelRatio,2));rn.setSize(W,H,false);el.appendCh
 if(!rn.getContext())throw new Error("nowebgl");
 webgl=true;
 const globe=new THREE.Group();sc.add(globe);
-// 星空：1200 星点，shader 逐点闪烁
-const sN=1200,sp=new Float32Array(sN*3),pha=new Float32Array(sN);
-for(let i=0;i<sN;i++){const v=new THREE.Vector3().randomDirection().multiplyScalar(18+Math.random()*42);sp[i*3]=v.x;sp[i*3+1]=v.y;sp[i*3+2]=v.z;pha[i]=Math.random();}
-const sg=new THREE.BufferGeometry();sg.setAttribute("position",new THREE.BufferAttribute(sp,3));sg.setAttribute("aP",new THREE.BufferAttribute(pha,1));
+// 星空：1600 星点，3 档亮度（暗/中/亮），shader 逐点闪烁
+const sN=1600,sp=new Float32Array(sN*3),pha=new Float32Array(sN),sb=new Float32Array(sN);
+for(let i=0;i<sN;i++){const v=new THREE.Vector3().randomDirection().multiplyScalar(14+Math.random()*46);sp[i*3]=v.x;sp[i*3+1]=v.y;sp[i*3+2]=v.z;pha[i]=Math.random();
+const r=Math.random();sb[i]=r<.55?.35:r<.85?.7:1;}
+const sg=new THREE.BufferGeometry();sg.setAttribute("position",new THREE.BufferAttribute(sp,3));sg.setAttribute("aP",new THREE.BufferAttribute(pha,1));sg.setAttribute("aB",new THREE.BufferAttribute(sb,1));
 const sm=new THREE.ShaderMaterial({uniforms:{uT:{value:0},uC:{value:new THREE.Color(0xbfd9ff)}},transparent:true,depthWrite:false,
-vertexShader:"attribute float aP;uniform float uT;varying float vP;void main(){vP=aP;vec4 mv=modelViewMatrix*vec4(position,1.0);gl_PointSize=(150.0/-mv.z)*(0.5+0.5*sin(uT*1.2+aP*6.283));gl_Position=projectionMatrix*mv;}",
-fragmentShader:"uniform float uT;uniform vec3 uC;varying float vP;void main(){vec2 c=gl_PointCoord-0.5;float d=length(c);float a=smoothstep(0.5,0.08,d)*(0.4+0.6*sin(uT*1.6+vP*6.283));if(a<0.03)discard;gl_FragColor=vec4(uC,a);}"});
+vertexShader:"attribute float aP;attribute float aB;uniform float uT;varying float vP;varying float vB;void main(){vP=aP;vB=aB;vec4 mv=modelViewMatrix*vec4(position,1.0);gl_PointSize=(130.0/-mv.z)*(0.55+0.45*sin(uT*1.2+aP*6.283))*(0.4+aB*1.3);gl_Position=projectionMatrix*mv;}",
+fragmentShader:"uniform float uT;uniform vec3 uC;varying float vP;varying float vB;void main(){vec2 c=gl_PointCoord-0.5;float d=length(c);float a=smoothstep(0.5,0.06,d)*(0.35+0.65*sin(uT*1.6+vP*6.283))*(0.35+vB*0.85);if(a<0.04)discard;gl_FragColor=vec4(uC,a);}"});
 sc.add(new THREE.Points(sg,sm));
-// 球体 + 大气辉光（backside 加法混合）
-const sp1=new THREE.Mesh(new THREE.SphereGeometry(1,48,32),new THREE.MeshBasicMaterial({color:0x0c2c52,transparent:true,opacity:.93}));
-globe.add(sp1);
-const at1=new THREE.Mesh(new THREE.SphereGeometry(1.07,48,24),new THREE.MeshBasicMaterial({color:0x2f7fd4,side:THREE.BackSide,transparent:true,opacity:.4,blending:THREE.AdditiveBlending,depthWrite:false}));
-const at2=new THREE.Mesh(new THREE.SphereGeometry(1.16,48,24),new THREE.MeshBasicMaterial({color:0x2f7fd4,side:THREE.BackSide,transparent:true,opacity:.12,blending:THREE.AdditiveBlending,depthWrite:false}));
-globe.add(at1,at2);
+// 地球贴图：NASA 地表为底色（暗化）+ 夜间灯光加法叠加；大气只留窄光晕
+const tl=new THREE.TextureLoader();tl.setCrossOrigin("");
+const baseTex=tl.load("./vendor/textures/earth_atmos_2048.jpg");
+const lightTex=tl.load("./vendor/textures/earth_lights_2048.png");
+baseTex.anisotropy=2;lightTex.anisotropy=2;
+const base=new THREE.Mesh(new THREE.SphereGeometry(1,64,40),new THREE.MeshBasicMaterial({map:baseTex,color:0xffffff,transparent:true,opacity:1}));
+base.renderOrder=0;globe.add(base);
+const lights=new THREE.Mesh(new THREE.SphereGeometry(1.002,64,40),new THREE.MeshBasicMaterial({map:lightTex,transparent:true,blending:THREE.AdditiveBlending,depthWrite:false}));
+lights.renderOrder=1;globe.add(lights);
+const at=new THREE.Mesh(new THREE.SphereGeometry(1.05,48,24),new THREE.MeshBasicMaterial({color:0x3f8fdd,side:THREE.BackSide,transparent:true,opacity:.3,blending:THREE.AdditiveBlending,depthWrite:false}));
+at.renderOrder=2;globe.add(at);
 // 经纬网格（自建 LineSegments：经线 12 条、纬线 5 条）
 const garr=[];
 for(let lo=0;lo<360;lo+=30){let a=[];for(let la=-90;la<=90;la+=6)a.push(latLon(la,lo,1.004));for(let i=0;i<a.length-1;i++){garr.push(a[i].x,a[i].y,a[i].z,a[i+1].x,a[i+1].y,a[i+1].z);}}
 for(let la=-60;la<=60;la+=30){let a=[];for(let lo=0;lo<=360;lo+=6)a.push(latLon(la,lo,1.004));for(let i=0;i<a.length-1;i++){garr.push(a[i].x,a[i].y,a[i].z,a[i+1].x,a[i+1].y,a[i+1].z);}}
 const gg=new THREE.BufferGeometry();gg.setAttribute("position",new THREE.Float32BufferAttribute(garr,3));
-globe.add(new THREE.LineSegments(gg,new THREE.LineBasicMaterial({color:0x3d6ea8,transparent:true,opacity:.35})));
-// 8 热点：按 S1 蓝 / S2 紫 / S3 橙 / S4 绿，核心点 + 脉冲环
-const HPTS=[[40,116,0x4d9de0],[23,113,0x8a63f5],[52,13,0xf5a623],[0,20,0xf5a623],[40,-75,0x4d9de0],[48,2,0x8a63f5],[33,-118,0x2ecc8f],[-15,-48,0x2ecc8f]];
+globe.add(new THREE.LineSegments(gg,new THREE.LineBasicMaterial({color:0x3d6ea8,transparent:true,opacity:.12})));
+// 8 热点：全部放在初始视角正面（经度 -75~135，cos>0 朝相机），按 S1 蓝 / S2 紫 / S3 橙 / S4 绿，核心点 + 脉冲环
+const HPTS=[[45,-75,0x4d9de0],[-20,-45,0x4d9de0],[38,5,0x8a63f5],[52,25,0x8a63f5],[28,50,0xf5a623],[35,80,0xf5a623],[25,110,0x2ecc8f],[-25,135,0x2ecc8f]];
 const hot=HPTS.map(p=>{const g=new THREE.Group();g.position.copy(latLon(p[0],p[1],1.02));
 const core=new THREE.Mesh(new THREE.SphereGeometry(.022,12,8),new THREE.MeshBasicMaterial({color:p[2]}));
 const ring=new THREE.Mesh(new THREE.RingGeometry(.05,.1,32),new THREE.MeshBasicMaterial({color:p[2],transparent:true,opacity:.7,side:THREE.DoubleSide,blending:THREE.AdditiveBlending,depthWrite:false}));
-g.add(core,ring);globe.add(g);return{ring,ph:p[0]+p[1]};});
-// 飞线：≥3 条大圆弧（QuadraticBezierCurve3），沿线流动光点
-const PAIRS=[[0,3],[1,4],[2,5],[3,6]];
-function mkLine(ai,bi,color){const pa=latLon(HPTS[ai][0],HPTS[ai][1],1.05),pb=latLon(HPTS[bi][0],HPTS[bi][1],1.05);
-const mid=pa.clone().add(pb).multiplyScalar(.5).normalize().multiplyScalar(1.3);
+g.add(core,ring);globe.add(g);return{ring,ph:p[0]+p[1],g};});
+// 飞线：4 条大圆弧（QuadraticBezierCurve3），透明度≥0.6，沿线流动光点
+const PAIRS=[[0,4],[1,5],[2,6],[3,7]];
+function mkLine(ai,bi,color){const pa=latLon(HPTS[ai][0],HPTS[ai][1],1.04),pb=latLon(HPTS[bi][0],HPTS[bi][1],1.04);
+const mid=pa.clone().add(pb).multiplyScalar(.5).normalize().multiplyScalar(1.28);
 const c=new THREE.QuadraticBezierCurve3(pa,mid,pb);
-const L=new THREE.Line(new THREE.BufferGeometry().setFromPoints(c.getPoints(48)),new THREE.LineBasicMaterial({color,transparent:true,opacity:.75,blending:THREE.AdditiveBlending}));
-const dot=new THREE.Mesh(new THREE.SphereGeometry(.02,8,8),new THREE.MeshBasicMaterial({color:0x9fd8ff}));
+const L=new THREE.Line(new THREE.BufferGeometry().setFromPoints(c.getPoints(56)),new THREE.LineBasicMaterial({color,transparent:true,opacity:.9,blending:THREE.AdditiveBlending}));
+const dot=new THREE.Mesh(new THREE.SphereGeometry(.022,8,8),new THREE.MeshBasicMaterial({color:0xd8f2ff}));
 globe.add(L,dot);return{c,dot};}
-const lines=PAIRS.map((p,i)=>mkLine(p[0],p[1],[0x35d0e8,0x4d9de0,0x8a63f5,0x2ecc8f][i%4]));
+const lines=PAIRS.map((p,i)=>mkLine(p[0],p[1],[0x7fd8ff,0x8fb8ff,0xc9a8ff,0x8ff2c8][i%4]));
 // 交互：拖拽旋转 + 滚轮缩放 + 惯性 + 空闲 3s 自动自转
 let drag=null,ivx=0,ivy=0,auto=performance.now();
 el.addEventListener("pointerdown",e=>{drag={x:e.clientX,y:e.clientY};auto=performance.now();ivx=ivy=0;el.setPointerCapture(e.pointerId);});
@@ -216,6 +222,8 @@ else if(now-auto>3000){globe.rotation.y+=.003;}
 hot.forEach((h,i)=>{const k=(now*.0008+i*.17)%1,s=.3+k*.95;h.ring.scale.set(s,s,1);h.ring.material.opacity=.7*(1-k);h.ring.quaternion.copy(cam.quaternion);});
 lines.forEach((L,i)=>{const k=(now*.0004+i*.31)%1;L.dot.position.copy(L.c.getPointAt(k));});
 rn.render(sc,cam);
+if(window.__front===undefined){const ndc=hot.map(h=>new THREE.Vector3().copy(h.g.position).applyMatrix4(globe.matrixWorld).project(cam));window.__front=ndc.filter(v=>Math.abs(v.x)<=1&&Math.abs(v.y)<=1&&v.z<1).length;}
+window.__tex={a:!!(baseTex.image&&baseTex.image.complete),l:!!(lightTex.image&&lightTex.image.complete)};
 fpsN++;if(now-fpsT>=1000){fpsA.push(fpsN*1000/(now-fpsT));if(fpsA.length>6)fpsA.shift();window.__fps5=Math.round(fpsA.reduce((a,b)=>a+b,0)/fpsA.length);fpsT=now;fpsN=0;}
 requestAnimationFrame(tick);})();
 addEventListener("resize",()=>{const w=el.clientWidth,h=el.clientHeight;cam.aspect=w/h;cam.updateProjectionMatrix();rn.setSize(w,h,false);});
