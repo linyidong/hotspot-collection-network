@@ -58,6 +58,13 @@ S3_AMPLITUDE_WORDS = ["涨", "跌", "升", "降", "%", "倍", "回升", "回落"
                       "走高", "走低", "上调", "下调", "上涨", "下跌", "增长", "下降"]
 S3_GENERIC_CATEGORIES = ["先进制造", "跨境电商", "电商", "消费品", "制造业"]
 
+# r12 vertical 枚举（playbook §3）：行业标签，与 6 类机制是两个维度
+VERTICALS = ["宠物经济", "银发经济", "母婴", "户外", "家居", "美妆个护",
+             "数码配件", "食品饮料", "汽车后市场", "其他"]
+
+# r11 能力闸（docs/capability-profile.md）：四布尔任一为 true → 超出个人能力
+FEASIBILITY_FIELDS = ["needs_license", "needs_capital", "needs_team", "needs_identity"]
+
 
 # ---------------------------------------------------------------------------
 # 提示词加载
@@ -112,13 +119,15 @@ def hard_filter(item: dict) -> str | None:
 # ---------------------------------------------------------------------------
 def validate(res: dict) -> tuple[bool, list[str]]:
     """
-    严格实现 10 条校验（v0.4）。
+    严格实现 12 条校验（v0.5）。
     ①字段齐全(r1)；②stage∈S1–S4(r2)；③anchor 国家或品类至少一非空(r3)；
     ④verify_plan 恰好 3 条且每条含具体查询对象(r4)；⑤money_hypothesis.form 非空(r5)；
     ⑥next_action 不得只是查资料(r6)；⑦fact 不得以传闻词开头(r7)；
     ⑧opportunity_type=none 判 no_playbook(r8，认输不算失败)；
     ⑨stage=S3 时 signal 必须含数值或幅度且 anchor.category 非泛词(r9)；
-    ⑩signal 中"可能/或将/预示/预计"≥2 次 → 纯推测(r10)。
+    ⑩signal 中"可能/或将/预示/预计"≥2 次 → 纯推测(r10)；
+    ⑪feasibility 四项齐全且全为 false，任一 true → r11_超出个人能力(r11)；
+    ⑫anchor.vertical 在 10 枚举内或留空，自创 → r12_vertical_自创(r12)。
     返回 (是否通过, 原因列表)。任一不满足 → 判 rejected。
     """
     reasons: list[str] = []
@@ -134,7 +143,7 @@ def validate(res: dict) -> tuple[bool, list[str]]:
     missing = []
     for key in ("fact", "stage", "anchor", "signal", "verify_plan",
                 "buyer_hypothesis", "money_hypothesis", "next_action",
-                "verify_cost", "verifiable_data", "confidence"):
+                "verify_cost", "feasibility", "verifiable_data", "confidence"):
         val = res.get(key)
         if key in ("verify_plan", "verifiable_data"):
             if not isinstance(val, list) or not val:
@@ -142,7 +151,7 @@ def validate(res: dict) -> tuple[bool, list[str]]:
         elif key == "anchor":
             if not isinstance(val, dict) or not val:
                 missing.append(key)
-        elif key in ("money_hypothesis", "next_action", "verify_cost"):
+        elif key in ("money_hypothesis", "next_action", "verify_cost", "feasibility"):
             if not isinstance(val, dict) or not val:
                 missing.append(key)
         else:
@@ -231,6 +240,24 @@ def validate(res: dict) -> tuple[bool, list[str]]:
         if cnt >= 2:
             reasons.append(f"r10_signal_纯推测:{cnt}次")
 
+    # r11 能力闸：feasibility 四项齐全且全为 false（docs/capability-profile.md）
+    feas = res.get("feasibility")
+    if isinstance(feas, dict):
+        for field in FEASIBILITY_FIELDS:
+            v = feas.get(field)
+            if not isinstance(v, bool):
+                reasons.append(f"r11_feasibility.缺少{field}或非布尔")
+            elif v is True:
+                reasons.append(f"r11_超出个人能力:{field}")
+    else:
+        reasons.append("r1_字段不齐:feasibility 缺失")
+
+    # r12 vertical 枚举校验：在 10 枚举内或留空，自创 → 不合格
+    if isinstance(anchor, dict):
+        vertical = (anchor.get("vertical") or "").strip()
+        if vertical and vertical not in VERTICALS:
+            reasons.append(f"r12_vertical_自创:{vertical}")
+
     return (len(reasons) == 0), reasons
 
 
@@ -267,11 +294,12 @@ def parse_json(text: str):
 # 假客户端（--dry-run 用，不调 API）
 # ---------------------------------------------------------------------------
 class DryRunClient:
-    """内置确定性假响应（v0.4 线索卡）。包含 7 条故意不合格：
-    s02 缺 stage（r2）；s04 anchor 国家与品类都空（r3）；
-    s05 verify_plan 只有 2 条（r4）；s07 money_hypothesis 缺 form（r5）；
-    s08 fact 以「据悉」开头（r7）；s11 stage=S3 但 signal 无幅度且品类泛（r9）；
-    s15 signal 推测词 ≥2（r10）。其余为通过 10 条校验的合格线索卡假响应。
+    """内置确定性假响应（v0.5 线索卡）。包含 9 条故意不合格：
+    G01 缺 stage（r2）；G02 anchor 国家与品类都空（r3）；
+    G03 verify_plan 只有 2 条（r4）；G04 money_hypothesis 缺 form（r5）；
+    G05 fact 以「据悉」开头（r7）；G06 stage=S3 但 signal 无幅度且品类泛（r9）；
+    G07 signal 推测词 ≥2（r10）；G08 feasibility 含 true（r11）；
+    G09 anchor.vertical 自创（r12）。其余为通过 12 条校验的合格线索卡假响应。
     """
 
     COARSE_TOKENS = (220, 60)    # (prompt_tokens, completion_tokens)
@@ -294,7 +322,9 @@ class DryRunClient:
         return {
             "fact": f"{sample_id} 的确定性假响应：某国某品类进口额连续增长，终端价差约3倍。",
             "stage": OPPORTUNITY_STAGES[idx % 4],
-            "anchor": {"country": "越南", "category": "手机配件", "hs_hint": ""},
+            "anchor": {
+                "country": "越南", "category": "手机配件", "hs_hint": "", "vertical": "数码配件",
+            },
             "signal": "某国该品类进口额连续18个月增长，平台类目爆发",
             "verify_plan": [
                 "查该品类HS编码近12个月进口额，用UN Comtrade",
@@ -309,6 +339,10 @@ class DryRunClient:
                 "action": "发询盘", "target": "某国3家采购商", "how": "注册卖家账号并发开发信报价",
             },
             "verify_cost": {"money": "50元", "time": "2小时"},
+            "feasibility": {
+                "needs_license": False, "needs_capital": False, "needs_team": False,
+                "needs_identity": False, "reason": "注册平台账号、发开发信、查公开数据均在个人能力内",
+            },
             "verifiable_data": ["该品类HS编码进口额", "电商平台类目销量榜"],
             "confidence": "low" if idx % 3 == 0 else "medium",
         }
@@ -316,29 +350,38 @@ class DryRunClient:
     def deep(self, item: dict, coarse_res: dict) -> tuple[dict | None, str, tuple[int, int]]:
         idx = self.samples.index(item)
         sample_id = item.get("id", "")
-        if sample_id == "s02":  # r2：缺 stage（也会连带 r1）
+        if sample_id == "G01":  # r2：缺 stage（也会连带 r1）
             resp = self._valid_card(sample_id, idx)
             resp.pop("stage")
-        elif sample_id == "s04":  # r3：anchor 国家与品类都空
+        elif sample_id == "G02":  # r3：anchor 国家与品类都空
             resp = self._valid_card(sample_id, idx)
-            resp["anchor"] = {"country": "", "category": "", "hs_hint": ""}
-        elif sample_id == "s05":  # r4：verify_plan 只有 2 条
+            resp["anchor"] = {"country": "", "category": "", "hs_hint": "", "vertical": "数码配件"}
+        elif sample_id == "G03":  # r4：verify_plan 只有 2 条
             resp = self._valid_card(sample_id, idx)
             resp["verify_plan"] = resp["verify_plan"][:2]
-        elif sample_id == "s07":  # r5：money_hypothesis 缺 form
+        elif sample_id == "G04":  # r5：money_hypothesis 缺 form
             resp = self._valid_card(sample_id, idx)
             resp["money_hypothesis"] = {"payer": "某国采购商", "your_cut": "差价", "status": "待验证"}
-        elif sample_id == "s08":  # r7：fact 以「据悉」开头
+        elif sample_id == "G05":  # r7：fact 以「据悉」开头
             resp = self._valid_card(sample_id, idx)
             resp["fact"] = "据悉，某国将放宽该品类进口限制，市场供给格局将变。"
-        elif sample_id == "s11":  # r9：S3 但 signal 无幅度 + category 泛词
+        elif sample_id == "G06":  # r9：S3 但 signal 无幅度 + category 泛词
             resp = self._valid_card(sample_id, idx)
             resp["stage"] = "S3"
             resp["signal"] = "关税政策可能影响该品类出口"
-            resp["anchor"] = {"country": "某国", "category": "先进制造", "hs_hint": ""}
-        elif sample_id == "s15":  # r10：signal 推测词 ≥2
+            resp["anchor"] = {"country": "某国", "category": "先进制造", "hs_hint": "", "vertical": "其他"}
+        elif sample_id == "G07":  # r10：signal 推测词 ≥2
             resp = self._valid_card(sample_id, idx)
             resp["signal"] = "该品类需求可能回暖，或将吸引更多买家，预计价格走高"
+        elif sample_id == "G08":  # r11：feasibility 含 true
+            resp = self._valid_card(sample_id, idx)
+            resp["feasibility"] = {
+                "needs_license": True, "needs_capital": False, "needs_team": False,
+                "needs_identity": False, "reason": "联系基金公司谈代销",
+            }
+        elif sample_id == "G09":  # r12：vertical 自创
+            resp = self._valid_card(sample_id, idx)
+            resp["anchor"]["vertical"] = "web3.0"
         else:  # 合格线索卡假响应
             resp = self._valid_card(sample_id, idx)
         return resp, json.dumps(resp, ensure_ascii=False), self.DEEP_TOKENS
@@ -459,22 +502,22 @@ def write_report(rows: list[dict], summary: dict, set_name: str, report_path: Pa
         "",
         "- 生成时间：由脚本自动生成",
         "- 测试集：{set_label}".format(set_label=set_label),
-        "- 版本：v0.4（提示词 v0.4 + 10 条校验，输出线索卡）",
+        "- 版本：v0.5（提示词 v0.5 + 12 条校验，输出线索卡 + 能力闸 + 行业标签）",
         "- 硬过滤 {hard} 条 / 进入模型 {model} 条 / ok {ok} / rejected {rejected}".format(**summary),
         "- 样本数：{total}；ok：{ok}；rejected：{rejected}；skipped：{skipped}；failed：{failed}".format(**summary),
         "- 总花费：{cost_total:.4f} 元；平均每条：{cost_avg:.4f} 元".format(**summary),
         "",
         "## 逐条结果",
         "",
-        "| 样本 | 标题 | 线索卡摘要 | 阶段 | A/B/C | 状态 | 拒绝原因 | prompt | completion | 成本(元) |",
-        "|---|---|---|---|---|---|---|---|---|---|",
+        "| 样本 | 标题 | 线索卡摘要 | 阶段 | 行业 | A/B/C | 状态 | 拒绝原因 | prompt | completion | 成本(元) |",
+        "|---|---|---|---|---|---|---|---|---|---|---|",
     ]
     for r in rows:
         title = (r["title"] or "").replace("|", "\\|")[:20]
         four = (r["four"] or "").replace("|", "\\|")
         reason = (r["reason"] or "").replace("|", "\\|")
         lines.append(
-            f"| {r['id']} | {title} | {four} | {r['stage']} | {r['grade']} | {r['status']} | {reason or '-'} "
+            f"| {r['id']} | {title} | {four} | {r['stage']} | {r['vertical']} | {r['grade']} | {r['status']} | {reason or '-'} "
             f"| {r['pt']} | {r['ct']} | {r['cost']:.4f} |"
         )
     lines.append("")
@@ -483,7 +526,7 @@ def write_report(rows: list[dict], summary: dict, set_name: str, report_path: Pa
     lines.append(f"- 总数：{summary['total']}")
     lines.append(f"- 硬过滤命中：{summary['hard']}（标题/正文命中公告类词，不进模型，不计费）")
     lines.append(f"- 进入模型：{summary['model']}")
-    lines.append(f"- ok（通过 10 条校验）：{summary['ok']}")
+    lines.append(f"- ok（通过 12 条校验）：{summary['ok']}")
     lines.append(f"- rejected（被校验拦下）：{summary['rejected']}")
     lines.append("- rejected 按原因分类计数：")
     if summary["reject_reasons"]:
@@ -548,13 +591,15 @@ def main() -> None:
         if hf_word:
             n_hard += 1
             status, reason, four, stage = "skipped", f"hard_filter:{hf_word}", "", "-"
+            vertical = ""
             pt, ct, cost = 0, 0, 0.0
             coarse_res, deep_res, deep_raw_text, deep_reasons = None, None, "", None
         else:
             coarse_res, coarse_tokens = client.coarse(item)
             c_cost = cost_of("coarse", coarse_tokens)
 
-            status, reason, four, stage, pt, ct, cost = "failed", "", "", "-", 0, 0, 0.0
+            status, reason, four, stage, vertical = "failed", "", "", "-", ""
+            pt, ct, cost = 0, 0, 0.0
             deep_res, deep_raw_text, deep_reasons = None, "", None
             if coarse_res is None or not isinstance(coarse_res, dict):
                 status, reason, cost = "failed", "粗筛输出无法解析", c_cost
@@ -573,6 +618,8 @@ def main() -> None:
                     four = short_four(deep_res)
                     if isinstance(deep_res, dict):
                         stage = deep_res.get("stage") or "-"
+                        _anchor = deep_res.get("anchor")
+                        vertical = (_anchor or {}).get("vertical") or "" if isinstance(_anchor, dict) else ""
                     if ok:
                         status = "ok"
                         n_ok += 1
@@ -605,7 +652,8 @@ def main() -> None:
 
         rows.append({
             "id": sample_id, "title": title, "four": four, "stage": stage,
-            "grade": "", "status": status, "reason": reason, "pt": pt, "ct": ct, "cost": cost,
+            "vertical": vertical, "grade": "", "status": status, "reason": reason,
+            "pt": pt, "ct": ct, "cost": cost,
         })
         print(f"[{i}/{total}] {sample_id} {status}  cost={cost:.4f}")
 
