@@ -167,19 +167,19 @@ for(let i=0;i<sN;i++){const v=new THREE.Vector3().randomDirection().multiplyScal
 const r=Math.random();sb[i]=r<.55?.35:r<.85?.7:1;}
 const sg=new THREE.BufferGeometry();sg.setAttribute("position",new THREE.BufferAttribute(sp,3));sg.setAttribute("aP",new THREE.BufferAttribute(pha,1));sg.setAttribute("aB",new THREE.BufferAttribute(sb,1));
 const sm=new THREE.ShaderMaterial({uniforms:{uT:{value:0},uC:{value:new THREE.Color(0xbfd9ff)}},transparent:true,depthWrite:false,
-vertexShader:"attribute float aP;attribute float aB;uniform float uT;varying float vP;varying float vB;void main(){vP=aP;vB=aB;vec4 mv=modelViewMatrix*vec4(position,1.0);gl_PointSize=(130.0/-mv.z)*(0.55+0.45*sin(uT*1.2+aP*6.283))*(0.4+aB*1.3);gl_Position=projectionMatrix*mv;}",
-fragmentShader:"uniform float uT;uniform vec3 uC;varying float vP;varying float vB;void main(){vec2 c=gl_PointCoord-0.5;float d=length(c);float a=smoothstep(0.5,0.06,d)*(0.35+0.65*sin(uT*1.6+vP*6.283))*(0.35+vB*0.85);if(a<0.04)discard;gl_FragColor=vec4(uC,a);}"});
+vertexShader:"attribute float aP;attribute float aB;uniform float uT;varying float vP;varying float vB;void main(){vP=aP;vB=aB;vec4 mv=modelViewMatrix*vec4(position,1.0);gl_PointSize=(150.0/-mv.z)*(0.75+0.5*sin(uT*1.2+aP*6.283))*(0.55+aB*1.15);gl_Position=projectionMatrix*mv;}",
+fragmentShader:"uniform float uT;uniform vec3 uC;varying float vP;varying float vB;void main(){vec2 c=gl_PointCoord-0.5;float d=length(c);float a=smoothstep(0.5,0.08,d)*(0.55+0.45*sin(uT*1.6+vP*6.283))*(0.5+vB*0.75);if(a<0.05)discard;gl_FragColor=vec4(uC,a);}"});
 sc.add(new THREE.Points(sg,sm));
 // 地球贴图：NASA 地表为底色（暗化）+ 夜间灯光加法叠加；大气只留窄光晕
-const tl=new THREE.TextureLoader();tl.setCrossOrigin("");
+const tl=new THREE.TextureLoader();tl.crossOrigin=undefined;
 const baseTex=tl.load("./vendor/textures/earth_atmos_2048.jpg");
 const lightTex=tl.load("./vendor/textures/earth_lights_2048.png");
 baseTex.anisotropy=2;lightTex.anisotropy=2;
-const base=new THREE.Mesh(new THREE.SphereGeometry(1,64,40),new THREE.MeshBasicMaterial({map:baseTex,color:0xffffff,transparent:true,opacity:1}));
+const base=new THREE.Mesh(new THREE.SphereGeometry(1,64,40),new THREE.MeshBasicMaterial({map:baseTex,color:0x77879e,transparent:true,opacity:.95}));
 base.renderOrder=0;globe.add(base);
 const lights=new THREE.Mesh(new THREE.SphereGeometry(1.002,64,40),new THREE.MeshBasicMaterial({map:lightTex,transparent:true,blending:THREE.AdditiveBlending,depthWrite:false}));
 lights.renderOrder=1;globe.add(lights);
-const at=new THREE.Mesh(new THREE.SphereGeometry(1.05,48,24),new THREE.MeshBasicMaterial({color:0x3f8fdd,side:THREE.BackSide,transparent:true,opacity:.3,blending:THREE.AdditiveBlending,depthWrite:false}));
+const at=new THREE.Mesh(new THREE.SphereGeometry(1.03,48,24),new THREE.MeshBasicMaterial({color:0x3f8fdd,side:THREE.BackSide,transparent:true,opacity:.28,blending:THREE.AdditiveBlending,depthWrite:false}));
 at.renderOrder=2;globe.add(at);
 // 经纬网格（自建 LineSegments：经线 12 条、纬线 5 条）
 const garr=[];
@@ -187,10 +187,10 @@ for(let lo=0;lo<360;lo+=30){let a=[];for(let la=-90;la<=90;la+=6)a.push(latLon(l
 for(let la=-60;la<=60;la+=30){let a=[];for(let lo=0;lo<=360;lo+=6)a.push(latLon(la,lo,1.004));for(let i=0;i<a.length-1;i++){garr.push(a[i].x,a[i].y,a[i].z,a[i+1].x,a[i+1].y,a[i+1].z);}}
 const gg=new THREE.BufferGeometry();gg.setAttribute("position",new THREE.Float32BufferAttribute(garr,3));
 globe.add(new THREE.LineSegments(gg,new THREE.LineBasicMaterial({color:0x3d6ea8,transparent:true,opacity:.12})));
-// 8 热点：全部放在初始视角正面（经度 -75~135，cos>0 朝相机），按 S1 蓝 / S2 紫 / S3 橙 / S4 绿，核心点 + 脉冲环
-const HPTS=[[45,-75,0x4d9de0],[-20,-45,0x4d9de0],[38,5,0x8a63f5],[52,25,0x8a63f5],[28,50,0xf5a623],[35,80,0xf5a623],[25,110,0x2ecc8f],[-25,135,0x2ecc8f]];
+// 8 热点：全部在初始视角正面（z=cos(lat)*cos(lon)>0，经度 -55~55），按 S1 蓝 / S2 紫 / S3 橙 / S4 绿，核心点 + 脉冲环
+const HPTS=[[35,-55,0x4d9de0],[-15,-35,0x4d9de0],[38,5,0x8a63f5],[52,20,0x8a63f5],[28,45,0xf5a623],[25,55,0xf5a623],[-25,30,0x2ecc8f],[-30,-10,0x2ecc8f]];
 const hot=HPTS.map(p=>{const g=new THREE.Group();g.position.copy(latLon(p[0],p[1],1.02));
-const core=new THREE.Mesh(new THREE.SphereGeometry(.022,12,8),new THREE.MeshBasicMaterial({color:p[2]}));
+const core=new THREE.Mesh(new THREE.SphereGeometry(.028,12,8),new THREE.MeshBasicMaterial({color:p[2]}));
 const ring=new THREE.Mesh(new THREE.RingGeometry(.05,.1,32),new THREE.MeshBasicMaterial({color:p[2],transparent:true,opacity:.7,side:THREE.DoubleSide,blending:THREE.AdditiveBlending,depthWrite:false}));
 g.add(core,ring);globe.add(g);return{ring,ph:p[0]+p[1],g};});
 // 飞线：4 条大圆弧（QuadraticBezierCurve3），透明度≥0.6，沿线流动光点
