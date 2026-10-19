@@ -190,8 +190,8 @@ globe.add(new THREE.LineSegments(gg,new THREE.LineBasicMaterial({color:0x3d6ea8,
 // 8 热点：全部在初始视角正面（z=cos(lat)*cos(lon)>0，经度 -55~55），按 S1 蓝 / S2 紫 / S3 橙 / S4 绿，核心点 + 脉冲环
 const HPTS=[[35,-55,0x4d9de0],[-15,-35,0x4d9de0],[38,5,0x8a63f5],[52,20,0x8a63f5],[28,45,0xf5a623],[25,55,0xf5a623],[-25,30,0x2ecc8f],[-30,-10,0x2ecc8f]];
 const hot=HPTS.map(p=>{const g=new THREE.Group();g.position.copy(latLon(p[0],p[1],1.02));
-const core=new THREE.Mesh(new THREE.SphereGeometry(.028,12,8),new THREE.MeshBasicMaterial({color:p[2]}));
-const ring=new THREE.Mesh(new THREE.RingGeometry(.05,.1,32),new THREE.MeshBasicMaterial({color:p[2],transparent:true,opacity:.7,side:THREE.DoubleSide,blending:THREE.AdditiveBlending,depthWrite:false}));
+const core=new THREE.Mesh(new THREE.SphereGeometry(.045,12,8),new THREE.MeshBasicMaterial({color:p[2]}));
+const ring=new THREE.Mesh(new THREE.RingGeometry(.05,.1,32),new THREE.MeshBasicMaterial({color:p[2],transparent:true,opacity:.75,side:THREE.DoubleSide,blending:THREE.AdditiveBlending,depthWrite:false}));
 g.add(core,ring);globe.add(g);return{ring,ph:p[0]+p[1],g};});
 // 飞线：4 条大圆弧（QuadraticBezierCurve3），透明度≥0.6，沿线流动光点
 const PAIRS=[[0,4],[1,5],[2,6],[3,7]];
@@ -222,7 +222,7 @@ else if(now-auto>3000){globe.rotation.y+=.003;}
 hot.forEach((h,i)=>{const k=(now*.0008+i*.17)%1,s=.3+k*.95;h.ring.scale.set(s,s,1);h.ring.material.opacity=.7*(1-k);h.ring.quaternion.copy(cam.quaternion);});
 lines.forEach((L,i)=>{const k=(now*.0004+i*.31)%1;L.dot.position.copy(L.c.getPointAt(k));});
 rn.render(sc,cam);
-if(window.__front===undefined){const ndc=hot.map(h=>new THREE.Vector3().copy(h.g.position).applyMatrix4(globe.matrixWorld).project(cam));window.__front=ndc.filter(v=>Math.abs(v.x)<=1&&Math.abs(v.y)<=1&&v.z<1).length;}
+if(window.__front===undefined){const ndc=hot.map(h=>new THREE.Vector3().copy(h.g.position).applyMatrix4(globe.matrixWorld).project(cam));window.__front=ndc.filter(v=>Math.abs(v.x)<=1&&Math.abs(v.y)<=1&&v.z<1).length;const r=el.getBoundingClientRect();window.__pts=ndc.map(v=>(r.left+(v.x+1)/2*r.width).toFixed(0)+","+(r.top+(1-v.y)/2*r.height).toFixed(0)).join(";");}
 window.__tex={a:!!(baseTex.image&&baseTex.image.complete),l:!!(lightTex.image&&lightTex.image.complete)};
 fpsN++;if(now-fpsT>=1000){fpsA.push(fpsN*1000/(now-fpsT));if(fpsA.length>6)fpsA.shift();window.__fps5=Math.round(fpsA.reduce((a,b)=>a+b,0)/fpsA.length);fpsT=now;fpsN=0;}
 requestAnimationFrame(tick);})();

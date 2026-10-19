@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<!-- 模块：T2 骨架占位首页。职责：深色空壳页，调用 /api/health 显示服务状态；
+     未配置 DEEPSEEK_API_KEY 时给出中文指引（不崩溃）。零外部依赖。 -->
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>热点采集网络 · 骨架</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{background:#060a12;color:#cdd9ee;font:14px/1.7 "Microsoft YaHei","PingFang SC",Arial,sans-serif;display:flex;align-items:center;justify-content:center}
+.card{width:min(560px,90vw);background:rgba(255,255,255,.04);border:1px solid rgba(120,180,255,.18);border-radius:12px;padding:32px 36px}
+h1{font-size:20px;color:#eaf2ff;margin-bottom:6px;letter-spacing:1px}
+.tag{display:inline-block;font-size:11px;color:#f5c542;border:1px solid rgba(245,197,66,.55);padding:1px 8px;border-radius:3px;margin-bottom:18px}
+.line{font-size:15px;color:#9fd8ff;margin-bottom:20px}
+.meta{font-size:12px;color:#8fa3c4;margin-bottom:8px}
+.meta b{color:#cfe3ff;font-weight:600}
+.warn{margin-top:14px;padding:12px 14px;border:1px solid rgba(245,166,35,.45);background:rgba(245,166,35,.08);border-radius:8px;font-size:13px;color:#f5c542}
+.warn a{color:#35d0e8;text-decoration:none}
+.ok{color:#2ecc8f}
+.status{font-size:12px;color:#7c8aa5;margin-top:18px}
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>热点采集网络</h1>
+  <span class="tag">T2 骨架 · 示例占位页</span>
+  <div class="line">T2 骨架已就绪，大屏在 T7 实现</div>
+  <div class="meta">服务状态：<b id="st">加载中…</b></div>
+  <div class="meta">版本：<b id="ver">-</b> ｜ 数据库表：<b id="tbl">-</b> ｜ API Key：<b id="key">-</b> ｜ 运行时长：<b id="up">-</b></div>
+  <div id="warn"></div>
+  <div class="status">提示：完整大屏（地球/线索卡/实时刷新）将在 T7 实现，本页仅验证服务与数据库骨架。</div>
+</div>
+<script>
+fetch("/api/health").then(r=>r.json()).then(d=>{
+  const $=i=>document.getElementById(i);
+  $("st").textContent=d.status==="ok"?"正常 ✔":"异常";$("st").className=d.status==="ok"?"ok":"";
+  $("ver").textContent="v"+d.version;
+  $("tbl").textContent=d.db.tables+"/8";
+  $("key").textContent=d.key_configured?"已配置":"未配置";
+  $("up").textContent=d.uptime_seconds+"s";
+  if(!d.key_configured){
+    $("warn").innerHTML='<div class="warn">尚未配置 DeepSeek API Key，功能将受限。<br>怎么办：① 到 <a href="https://platform.deepseek.com" target="_blank" rel="noopener">platform.deepseek.com → API Keys</a> 获取；② 在项目根目录把 <b>.env.example</b> 复制为 <b>.env</b>，填入 DEEPSEEK_API_KEY；③ 重启 <b>python run.py</b>。</div>';
+  }
+}).catch(e=>{
+  document.getElementById("warn").innerHTML='<div class="warn">无法连接后端 /api/health，请确认服务已启动（python run.py）。</div>';
+});
+</script>
+</body>
+</html>

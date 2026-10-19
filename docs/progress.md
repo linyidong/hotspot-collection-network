@@ -24,8 +24,8 @@
 | 任务 | 名称 | 状态 | 备注 |
 |---|---|---|---|
 | T0 | 加工质量基准题 | v0.5 双测试集重跑完成：gold ok 14 / rejected 6（r11 拦 5 + no_playbook 1）；live ok 9 / rejected 5（r11 拦 4 + no_playbook 1）/ skipped 6（硬过滤 4 + 粗筛 2）；**能力闸生效**（live 科创债/海光/司美格鲁肽被 r11 拦）；遗留：L02 宁德时代回购未被拦（动作降级为发询盘）、L07 主动ETF 被粗筛跳过；待人工盲评（A/B/C 分级） | **前置闸门**；v0.4→v0.5 加能力闸（r11 + feasibility）、行业标签（r12 + anchor.vertical 10 枚举）、用户画像（docs/capability-profile.md），详见 docs/prompt-log.md |
-| T1 | 静态大屏稿 | ⬜ 未开始 | 依赖 T0 |
-| T2 | 项目骨架与配置 | ⬜ 未开始 | —— |
+| T1 | 静态大屏稿 | ✅ 完成（A/B 版 + 3D 稿 mockup-3d.html，见 git 历史） | 依赖 T0 |
+| T2 | 项目骨架与配置 | ✅ 完成（run.py 入口 + 配置层 + SQLite 8 表 + /api/health） | —— |
 | T3 | 采集层 | ⬜ 未开始 | —— |
 | T4 | 去重 + 粗筛 | ⬜ 未开始 | —— |
 | T5 | 深加工 + 校验 | ⬜ 未开始 | —— |
@@ -59,3 +59,4 @@
 | 2026-10-19 23:30 | T0 v0.3 重跑完成：ok 19 / rejected 1 / skipped 0，待人工盲评（A/B/C） |
 | 2026-10-19 20:30 | T0 v0.4 双测试集重跑完成：gold ok 15 / 硬过滤 5；live ok 13 / 硬过滤 4，待人工盲评（A/B/C） |
 | 2026-10-19 23:50 | T0 v0.5 双测试集重跑完成：gold ok 14 / rejected 6（r11 5）；live ok 9 / rejected 5（r11 4）/ skipped 6（硬过滤 4 + 粗筛 2）；能力闸 + 行业标签上线，待人工盲评（A/B/C） |
+| 2026-10-20 00:40 | T2 项目骨架完成：run.py 一条命令起 uvicorn（版本/依赖/端口/建表检查 + 中文错误）；app/config.py（.env + data/config.json 合并，缺 Key 不退出）；app/db.py（WAL + 幂等 8 表）；/api/health 实测 8 表 ok；首页深色占位页 |
