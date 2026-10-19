@@ -1,0 +1,3 @@
+# Required only for Xueqiu (雪球) source
+# CLS, Eastmoney, and THS work with Python stdlib only
+websocket-client>=1.0.0

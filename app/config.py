@@ -93,6 +93,14 @@ class Settings:
             return 8000
 
     @property
+    def rss_bridge_port(self) -> int:
+        """本地 RSS 桥端口（RSS_BRIDGE_PORT，默认 8053）。"""
+        try:
+            return int(self._m.get("RSS_BRIDGE_PORT", "8053"))
+        except ValueError:
+            return 8053
+
+    @property
     def db_path(self) -> Path:
         return DB_PATH
 

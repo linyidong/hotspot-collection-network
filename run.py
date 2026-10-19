@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 """模块：唯一启动入口。职责：依次检查 Python 版本≥3.11、依赖齐全、端口可用，
-    初始化配置与数据库，打印中文摘要后起 uvicorn；任一失败给出中文错误+怎么办。
-    关键依赖：app.config / app.db / app.api.routes、fastapi、uvicorn。"""
+    初始化配置与数据库，拉起 RSS 桥子进程，seed 8 源进 sources 表，打印中文摘要后起 uvicorn；
+    Ctrl+C 一并关闭桥子进程；`python run.py --fetch-once` 只跑一轮采集后退出。
+    关键依赖：app.config / app.db / app.bridge / app.api.routes / app.sources.*、fastapi、uvicorn。"""
 import importlib.util
 import socket
 import sys
@@ -23,7 +24,11 @@ if _missing:
 
 # ===== 3. 配置与数据库 =====
 from app.config import settings, mask_key
-from app.db import init_db, table_names
+from app.db import init_db, table_names, get_conn
+from app.bridge import bridge
+from app.sources.registry import SOURCES
+
+FETCH_ONCE = "--fetch-once" in sys.argv
 
 # data 目录可写检查（config 已加载，此处显式确认）
 _db_parent = settings.db_path.parent
@@ -37,20 +42,21 @@ except OSError as e:
     print("怎么办：检查该路径的写入权限，或修改 data/config.json 中的数据库路径。")
     sys.exit(1)
 
-# ===== 4. 端口占用检查 =====
-_port = settings.port
-_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-try:
-    _sock.bind(("127.0.0.1", _port))
-    _port_free = True
-except OSError:
-    _port_free = False
-finally:
-    _sock.close()
-if not _port_free:
-    print(f"错误：端口 {_port} 已被占用，无法启动服务。")
-    print(f"怎么办：① 改端口：在 .env 中把 PORT={_port} 改成其它值（如 8001）后重试；② 或关闭占用该端口的程序。")
-    sys.exit(1)
+# ===== 4. 端口占用检查（仅正式启动服务时；--fetch-once 不占端口）=====
+if not FETCH_ONCE:
+    _port = settings.port
+    _sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        _sock.bind(("127.0.0.1", _port))
+        _port_free = True
+    except OSError:
+        _port_free = False
+    finally:
+        _sock.close()
+    if not _port_free:
+        print(f"错误：端口 {_port} 已被占用，无法启动服务。")
+        print(f"怎么办：① 改端口：在 .env 中把 PORT={_port} 改成其它值（如 8001）后重试；② 或关闭占用该端口的程序。")
+        sys.exit(1)
 
 # ===== 5. 建库建表 =====
 _tables = init_db()
@@ -59,20 +65,74 @@ if len(_tables) != 8:
     print("怎么办：删除 data/app.db 后重新运行 python run.py（会重新建表）。")
     sys.exit(1)
 
-# ===== 6. 控制台中文摘要（版本/端口/库路径/Key 状态）=====
+
+def seed_sources():
+    """把注册表的 8 个源写入 sources 表（幂等：按 name 匹配，保留用户改过的开关/代理）。"""
+    conn = get_conn()
+    try:
+        for spec in SOURCES:
+            row = conn.execute("SELECT id FROM sources WHERE name=?", (spec.name,)).fetchone()
+            if row is None:
+                conn.execute(
+                    "INSERT INTO sources(name, url, enabled, proxy_mode) VALUES(?,?,1,'direct')",
+                    (spec.name, spec.url))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+# ===== 6. 拉起 RSS 桥 =====
+if not bridge.start():
+    print("错误：本地 RSS 桥启动失败。")
+    print("怎么办：确认 third_party/china-finance-rss/server.py 存在且 8053 端口未被占用；可用 --fetch-once 之外的方式单独排查桥日志。")
+    sys.exit(1)
+seed_sources()
+
+if FETCH_ONCE:
+    from app.sources.collect import collect_once
+    print("=" * 56)
+    print("热点采集网络 · 单轮采集（--fetch-once）")
+    print(f"桥端口  : {bridge.port}")
+    print("=" * 56, flush=True)
+    results = collect_once()
+    print("-" * 56)
+    for spec in SOURCES:
+        r = results.get(spec.id, {})
+        if r.get("skipped"):
+            print(f"{spec.name:12s} 已停用（未抓取）")
+        elif r["error"] is None:
+            print(f"{spec.name:12s} ok  {len(r['items']):3d} 条")
+        else:
+            print(f"{spec.name:12s} 失败  {r['error']}")
+    print("-" * 56)
+    n_ok = sum(1 for s in SOURCES
+               if (results.get(s.id) or {}).get("error") is None
+               and not (results.get(s.id) or {}).get("skipped"))
+    print(f"成功源 {n_ok}/{len(SOURCES)}。失败源的 last_error 已写入 sources 表。")
+    bridge.stop()
+    sys.exit(0)
+
+# ===== 7. 控制台中文摘要（版本/端口/库路径/Key 状态/桥状态）=====
 key_txt = "已配置 " + mask_key(settings.DEEPSEEK_API_KEY) if settings.key_configured \
     else "未配置（key_configured=false，页面会提示去申请）"
 print("=" * 56)
-print("热点采集网络 · T2 骨架 启动中")
+print("热点采集网络 · T3 采集层 启动中")
 print(f"版本    : v{settings.VERSION}")
 print(f"端口    : http://127.0.0.1:{_port}")
 print(f"数据库  : {settings.db_path}（{len(_tables)} 张表，WAL）")
+print(f"RSS 桥  : http://127.0.0.1:{bridge.port}（子进程 pid={bridge.proc.pid if bridge.proc else '-'}）")
 print(f"API Key : {key_txt}")
 print("=" * 56, flush=True)
 
-# ===== 7. 起 uvicorn =====
+# ===== 8. 起 uvicorn（Ctrl+C 时一并关闭桥子进程）=====
 import uvicorn
 from app.api.routes import create_app
 
 if __name__ == "__main__":
-    uvicorn.run(create_app(), host="127.0.0.1", port=_port, log_level="info")
+    server = uvicorn.Server(uvicorn.Config(create_app(), host="127.0.0.1",
+                                           port=_port, log_level="info"))
+    try:
+        server.run()
+    finally:
+        bridge.stop()
+        print("RSS 桥已随主服务一并关闭。")

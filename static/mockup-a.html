@@ -69,6 +69,7 @@ main{flex:1;min-height:0;display:flex;gap:10px;padding:10px}
 .next{font-size:10px;color:#35d0e8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:3px}
 .cf{display:flex;justify-content:space-between;gap:6px;font-size:10px;color:#7c8aa5}
 .ex{color:#ffb020}
+#dbg{position:fixed;right:10px;bottom:8px;font-size:11px;color:#4a5878}
 /* 底栏 */
 footer{height:28px;flex:none;display:flex;align-items:center;justify-content:center;gap:18px;font-size:11px;color:#7c8aa5;border-top:1px solid rgba(120,180,255,.12);white-space:nowrap}
 footer b{color:#9fb4d8}
@@ -113,6 +114,7 @@ footer b{color:#9fb4d8}
   </section>
 </main>
 <footer><span>v0.1 布局稿</span><b>光点 8</b><span>数据源 5/5</span><span>本轮 2m14s</span><span>示例数据 · 布局稿</span></footer>
+<div id="dbg"></div>
 <script>
 const $=i=>document.getElementById(i);
 // 面板数据：0阶段 1行业 2等级 3事实 4钱流 5时间 6下一步 7是否排除
@@ -146,17 +148,19 @@ function rs(){W=cv.clientWidth;H=cv.clientHeight;cv.width=W*devicePixelRatio;cv.
 rs();addEventListener("resize",rs);
 // 8 点分散亚欧美非：[纬度,经度,颜色]
 const P=[[40,116,"#4d9de0"],[23,113,"#8a63f5"],[52,13,"#f5a623"],[0,20,"#f5a623"],[40,-75,"#4d9de0"],[48,2,"#8a63f5"],[33,-118,"#2ecc8f"],[-15,-48,"#2ecc8f"]];
-const s=performance.now();let rot=-30;
+const s=performance.now();let rot=40;
 function pr(lat,lon){const a=lat*Math.PI/180,b=(lon+rot)*Math.PI/180;return[Math.cos(a)*Math.sin(b),Math.sin(a),Math.cos(a)*Math.cos(b)];}
 function runs(pa){let o=[],c=[];for(const q of pa){const p=pr(q[0],q[1]);if(p[2]>0)c.push([p[0]*R,p[1]*R]);else{if(c.length)o.push(c);c=[];}}if(c.length)o.push(c);return o;}
 function wire(pa,col){x.strokeStyle=col;x.lineWidth=1;for(const r of runs(pa)){x.beginPath();r.forEach((p,i)=>i?x.lineTo(p[0],p[1]):x.moveTo(p[0],p[1]));x.stroke();}}
-function f(now){rot=-30+(now-s)/180;x.clearRect(0,0,W,H);x.save();x.translate(W/2,H/2);x.beginPath();x.arc(0,0,R,0,7);x.clip();
+function f(now){rot=40+(now-s)/180;x.clearRect(0,0,W,H);x.save();x.translate(W/2,H/2);x.beginPath();x.arc(0,0,R,0,7);x.clip();
 const g=x.createRadialGradient(-R*.3,-R*.3,R*.1,0,0,R);g.addColorStop(0,"#16395f");g.addColorStop(1,"#071228");x.fillStyle=g;x.fillRect(-R,-R,2*R,2*R);
 for(let lo=-180;lo<180;lo+=30){let a=[];for(let la=-90;la<=90;la+=6)a.push([la,lo]);wire(a,"rgba(100,170,255,.22)");}
 for(let la=-60;la<=60;la+=30){let a=[];for(let lo=-180;lo<=180;lo+=6)a.push([la,lo]);wire(a,"rgba(100,170,255,.32)");}
-P.forEach((p,i)=>{const q=pr(p[0],p[1]);if(q[2]<=0)return;const px=q[0]*R,py=q[1]*R,t=((now-s)/800+i*.17)%1;
+let vis=0;
+P.forEach((p,i)=>{const q=pr(p[0],p[1]);if(q[2]<=0)return;vis++;const px=q[0]*R,py=q[1]*R,t=((now-s)/800+i*.17)%1;
 x.strokeStyle=p[2];x.globalAlpha=.55*(1-t);x.lineWidth=1.4;x.beginPath();x.arc(px,py,R*(.015+.06*t),0,7);x.stroke();x.globalAlpha=1;
 x.fillStyle=p[2];x.beginPath();x.arc(px,py,R*.017,0,7);x.fill();});
+$("dbg").textContent="光点 "+P.length+" 个，当前可见 "+vis+" 个";
 x.beginPath();x.arc(0,0,R,0,7);x.strokeStyle="rgba(120,180,255,.45)";x.lineWidth=1.5;x.stroke();
 x.restore();requestAnimationFrame(f);}
 requestAnimationFrame(f);

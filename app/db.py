@@ -87,10 +87,19 @@ def init_db() -> int:
         conn.execute("PRAGMA journal_mode=WAL")
         for ddl in SCHEMA:
             conn.execute(ddl)
+        _migrate_sources(conn)
         conn.commit()
         return table_names(conn)
     finally:
         conn.close()
+
+
+def _migrate_sources(conn: sqlite3.Connection):
+    """sources 表增量迁移：补 last_count 列（T3 采集层需要）。"""
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(sources)").fetchall()]
+    if "last_count" not in cols:
+        conn.execute(
+            "ALTER TABLE sources ADD COLUMN last_count INTEGER NOT NULL DEFAULT 0")
 
 
 def table_names(conn: sqlite3.Connection = None) -> list:
