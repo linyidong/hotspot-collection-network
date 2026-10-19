@@ -69,9 +69,9 @@
 | F-001 | 定时调度 | 不用手动触发 | 系统时钟 | 08/11/14/17/20/23 点各触发 1 次；进程重启后错过的轮次补跑 1 次且不重复 |
 | F-002 | 多源采集 | 一次看全 | RSS 桥 | 每个源可单独开关；单源超时 20s 不影响其他源；失败源在界面标红并记录原因 |
 | F-003 | 去重 | 不重复看同一条 | —— | URL 归一化后完全相同 → 合并；标题相似度 ≥ 0.9 → 合并，保留最早时间 |
-| F-004 | 领域粗筛 | 砍掉 90% 噪音 | 低成本模型 | 每条输出 `{is_economic: bool, opportunity_type: 6选1或none, potential: 0-100}`；单条成本 ≤ 0.002 元 |
+| F-004 | 领域粗筛 | 砍掉 90% 噪音 | 低成本模型 | 每条输出 `{is_economic: bool, opportunity_type: 6选1或none, potential: 0-100}`；单条成本 ≤ 0.0017 元（300 条合计 ≤ 0.5 元） |
 | F-005 | 限额深加工 | 把噪音变成动作 | 高能力模型 | 每轮最多 N 条（默认 10，可配）；超出进「候选池」不丢弃；单条输出严格四件套 JSON |
-| F-006 | 结构化校验 | 防止「正确的废话」 | F-005 | 四件套字段齐全；`next_action.action` 必须含动词且不得是「关注/留意/研究/重视」；`verifiable_data` 至少 1 条；不通过则标记 `rejected` 并记录原因，不进大屏主区 |
+| F-006 | 结构化校验（**6 条，以本节为准**） | 防止「正确的废话」 | F-005 | ①四件套字段齐全；②`opportunity_type` ∈ 6 类枚举；③`next_action.action` 含动词且不在禁用词表（关注/留意/研究/重视/了解/把握）；④`next_action` 必须写明目标对象（查什么/联系谁）；⑤`verifiable_data` ≥1 条且不是空话；⑥`fact` 不得以「据悉/业内人士称/有消息称」开头。任一不满足 → `rejected` + 原因，不进大屏主区 |
 | F-007 | 增量视图 | 只看新增，有停止感 | 批次模型 | 大屏分「最近 3 小时新增」与「更早」两区；新增条目标记圆点；批次时间准确到分钟 |
 | F-008 | 条目详情 | 看清一条到底说什么 | —— | 展示原文摘要、四件套、原文链接、采集时间、来源、加工模型、本条花费 |
 | F-009 | 备忘录 | 沉淀自己的判断 | —— | 可对任意条目写备注；自动保存；重启不丢；支持按机会类型筛选 |
@@ -161,12 +161,12 @@
 | 表 | 关键字段 | 说明 |
 |---|---|---|
 | `sources` | id, name, url, enabled, proxy_mode, proxy_url, last_ok_at, last_error | 源配置 |
-| `batches` | id, started_at, finished_at, trigger(自动/手动), stats_json | 每轮批次 |
-| `items` | id, batch_id, source_id, title, url, url_hash, summary, published_at, region | 原始条目 |
+| `batches` | id, started_at, finished_at, trigger(自动/手动), **status(running/done/degraded/failed)**, stats_json | 每轮批次 |
+| `items` | id, batch_id, source_id, title, url, url_hash, summary, published_at, region, **is_duplicate, duplicate_of** | 原始条目 |
 | `analyses` | id, item_id, stage(粗筛/深加工), model, payload_json, status(ok/rejected/failed), cost, created_at | 加工结果 |
 | `notes` | id, item_id, content, updated_at | 备忘录 |
 | `favorites` | item_id, created_at | 收藏 |
-| `llm_calls` | id, batch_id, stage, provider, model, prompt_tokens, completion_tokens, cost, created_at | 成本流水 |
+| `llm_calls` | id, batch_id, stage, provider, model, prompt_tokens, completion_tokens, **unit_price_in, unit_price_out**, cost, created_at | 成本流水 |
 | `config` | key, value | 设置项 |
 
 **权限**：无（单人本机）。**数据归属**：全部本机，不上传第三方（除 LLM 调用必需的文本）。

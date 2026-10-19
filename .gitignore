@@ -31,3 +31,9 @@ desktop.ini
 *.log
 *.tmp
 ~$*
+
+# ===== Trae Gateway 产物（不属于项目内容）=====
+.gateway-job.json
+TASK.md
+RESULT.md
+REWORK.md
