@@ -1,24 +1,21 @@
 # -*- coding: utf-8 -*-
 """
-T0 加工质量基准题脚本：粗筛 -> 深加工 -> 8 条校验 -> 报告（v0.3 线索卡）。
+T0 加工质量基准题脚本（v0.4）：硬过滤 -> 粗筛 -> 深加工 -> 10 条校验 -> 双集报告。
 
 职责：
-  1. 读取 tools/baseline/samples.jsonl（20 条真实热点样本，不改动样本文件）。
-  2. 逐条调用 prompts/coarse.md 做粗筛（deepseek-flash，只判经济性 + 抽国家/品类）。
-  3. 对经济相关条目调用 prompts/deep.md 做深加工（deepseek-v4-pro，输出线索卡）。
-  4. 用 validate() 严格执行 PRD F-006 的 8 条校验。
-  5. 输出 tools/baseline/report.md（含每条线索卡摘要、阶段、A/B/C 分级位、状态、
-     拒绝原因、tokens、成本 + 汇总）。
-
-关键输入输出：
-  输入：samples.jsonl、prompts/coarse.md、prompts/deep.md
-  输出：tools/baseline/report.md（以及每条的进度行）
-关键依赖：openai（真实模式）、python-dotenv（读 .env）；--dry-run 模式不依赖网络与 key。
+  1. 读取测试集样本（gold=含机会新闻 20 条 / live=华尔街见闻真实快讯 20 条）。
+  2. 硬过滤（纯字符串规则，模型调用前）：命中公告/早报类词 → skipped，不计费。
+  3. 逐条调用 prompts/coarse.md 做粗筛（deepseek-flash，只判经济性 + 抽国家/品类）。
+  4. 对经济相关条目调用 prompts/deep.md 做深加工（deepseek-v4-pro，输出线索卡）。
+  5. 用 validate() 执行 PRD F-006 的 8 条 + r9（S3 门槛）/ r10（反推测）。
+  6. 输出 report-gold.md / report-live.md（含每条线索卡摘要、阶段、A/B/C 分级位、
+     状态、拒绝原因、tokens、成本 + 汇总 + 硬过滤计数）。
 
 用法：
-  python tools/baseline_test.py --dry-run            # 不调 API，内置假响应验证管道
-  python tools/baseline_test.py --dry-run --limit 3  # 只跑前 3 条
-  python tools/baseline_test.py --limit 5            # 真实模式，只跑前 5 条（省钱试跑）
+  python tools/baseline_test.py --dry-run                 # 默认 gold 集，不调 API
+  python tools/baseline_test.py --set live --dry-run      # live 集 dry-run
+  python tools/baseline_test.py --set gold --limit 3      # gold 集试跑前 3 条
+  python tools/baseline_test.py --set live                # live 集真实模式
 """
 
 import argparse
@@ -30,8 +27,10 @@ from pathlib import Path
 # 常量
 # ---------------------------------------------------------------------------
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-SAMPLES_PATH = PROJECT_ROOT / "tools" / "baseline" / "samples.jsonl"
-REPORT_PATH = PROJECT_ROOT / "tools" / "baseline" / "report.md"
+SAMPLES_GOLD_PATH = PROJECT_ROOT / "tools" / "baseline" / "samples-gold.jsonl"
+SAMPLES_LIVE_PATH = PROJECT_ROOT / "tools" / "baseline" / "samples-live.jsonl"
+REPORT_GOLD_PATH = PROJECT_ROOT / "tools" / "baseline" / "report-gold.md"
+REPORT_LIVE_PATH = PROJECT_ROOT / "tools" / "baseline" / "report-live.md"
 RAW_DIR = PROJECT_ROOT / "tools" / "baseline" / "raw"
 COARSE_PROMPT_PATH = PROJECT_ROOT / "prompts" / "coarse.md"
 DEEP_PROMPT_PATH = PROJECT_ROOT / "prompts" / "deep.md"
@@ -42,11 +41,22 @@ PRICE_FLASH_OUTPUT = 4.0     # deepseek-flash 输出
 PRICE_PRO_INPUT = 4.5        # deepseek-v4-pro 输入
 PRICE_PRO_OUTPUT = 13.5      # deepseek-v4-pro 输出
 
-# 校验词表（PRD F-006 8 条校验 + playbook v0.3）
+# 校验词表（PRD F-006 8 条 + v0.4 的 r9/r10）
 OPPORTUNITY_STAGES = ["S1", "S2", "S3", "S4"]
 FACT_BANNED_PREFIXES = ["据悉", "业内人士称", "有消息称", "据称"]
 QUERY_ONLY_WORDS = ["查", "查阅", "下载", "调取", "阅读", "检索", "搜索", "浏览"]
 TRADE_ACTION_WORDS = ["联系", "报价", "询盘", "发信", "开发信", "打电话", "注册", "寄样", "下单", "签约", "拜访"]
+
+# 硬过滤词（v0.4）：标题/正文命中任一 → 不进模型，直接 skipped，不计费
+HARD_FILTER_WORDS = ["早报", "日报", "综述", "快讯汇总", "投资者关系", "答记者问", "批复"]
+
+# r10 反推测：signal 里这些词出现 ≥2 次 → 纯推测
+SPECULATION_WORDS = ["可能", "或将", "预示", "预计"]
+
+# r9 S3 门槛：signal 必须含数值或幅度；anchor.category 不得是泛词
+S3_AMPLITUDE_WORDS = ["涨", "跌", "升", "降", "%", "倍", "回升", "回落", "反弹",
+                      "走高", "走低", "上调", "下调", "上涨", "下跌", "增长", "下降"]
+S3_GENERIC_CATEGORIES = ["先进制造", "跨境电商", "电商", "消费品", "制造业"]
 
 
 # ---------------------------------------------------------------------------
@@ -65,13 +75,13 @@ def load_prompt(path: Path) -> str:
 
 
 def load_samples(path: Path) -> list[dict]:
-    """读取 samples.jsonl，每行一个 JSON 对象。样本文件只读，不改动。"""
+    """读取 samples-*.jsonl，每行一个 JSON 对象。样本文件只读，不改动。"""
     if not path.exists():
         print(f"[错误] 找不到样本文件：{path}", file=sys.stderr)
         sys.exit(1)
     samples = []
     for line_no, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
-        line = line.strip()
+        line = line.strip().lstrip("\ufeff")
         if not line:
             continue
         try:
@@ -86,15 +96,29 @@ def load_samples(path: Path) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
-# 校验（PRD F-006 的 8 条，v0.3）
+# 硬过滤（v0.4：模型调用之前，纯字符串规则）
+# ---------------------------------------------------------------------------
+def hard_filter(item: dict) -> str | None:
+    """标题/正文命中硬过滤词 → 返回命中词；否则 None。命中条目不进模型，不计费。"""
+    text = f"{item.get('title') or ''} {item.get('content') or ''} {item.get('summary') or ''}"
+    for w in HARD_FILTER_WORDS:
+        if w in text:
+            return w
+    return None
+
+
+# ---------------------------------------------------------------------------
+# 校验（PRD F-006 的 8 条 + v0.4 的 r9/r10）
 # ---------------------------------------------------------------------------
 def validate(res: dict) -> tuple[bool, list[str]]:
     """
-    严格实现 8 条校验（v0.3，对应 PRD F-006）。
+    严格实现 10 条校验（v0.4）。
     ①字段齐全(r1)；②stage∈S1–S4(r2)；③anchor 国家或品类至少一非空(r3)；
     ④verify_plan 恰好 3 条且每条含具体查询对象(r4)；⑤money_hypothesis.form 非空(r5)；
     ⑥next_action 不得只是查资料(r6)；⑦fact 不得以传闻词开头(r7)；
-    ⑧opportunity_type=none 判 no_playbook(r8，认输不算失败)。
+    ⑧opportunity_type=none 判 no_playbook(r8，认输不算失败)；
+    ⑨stage=S3 时 signal 必须含数值或幅度且 anchor.category 非泛词(r9)；
+    ⑩signal 中"可能/或将/预示/预计"≥2 次 → 纯推测(r10)。
     返回 (是否通过, 原因列表)。任一不满足 → 判 rejected。
     """
     reasons: list[str] = []
@@ -186,6 +210,27 @@ def validate(res: dict) -> tuple[bool, list[str]]:
         if any(f.startswith(p) for p in FACT_BANNED_PREFIXES):
             reasons.append(f"r7_fact以'{FACT_BANNED_PREFIXES[0]}'等传闻词开头")
 
+    # r9 S3 门槛：stage=S3 时 signal 必须含数值或幅度，且 anchor.category 不得是泛词
+    signal = res.get("signal")
+    if stage == "S3":
+        if isinstance(signal, str) and signal.strip():
+            has_num = any(c.isdigit() for c in signal)
+            has_amp = any(w in signal for w in S3_AMPLITUDE_WORDS)
+            if not (has_num or has_amp):
+                reasons.append("r9_S3signal无数值或幅度")
+        else:
+            reasons.append("r1_字段不齐:signal 缺失")
+        if isinstance(anchor, dict):
+            category = (anchor.get("category") or "").strip()
+            if not category or any(g in category for g in S3_GENERIC_CATEGORIES):
+                reasons.append("r9_S3anchor.category为泛品类或为空")
+
+    # r10 反推测：signal 中推测词出现 ≥2 次 → 纯推测
+    if isinstance(signal, str):
+        cnt = sum(signal.count(w) for w in SPECULATION_WORDS)
+        if cnt >= 2:
+            reasons.append(f"r10_signal_纯推测:{cnt}次")
+
     return (len(reasons) == 0), reasons
 
 
@@ -222,10 +267,11 @@ def parse_json(text: str):
 # 假客户端（--dry-run 用，不调 API）
 # ---------------------------------------------------------------------------
 class DryRunClient:
-    """内置确定性假响应（v0.3 线索卡）。包含 5 条故意不合格：
-    s03 缺 stage（r2）；s07 anchor 国家与品类都空（r3）；
-    s11 verify_plan 只有 2 条（r4）；s15 money_hypothesis 缺 form（r5）；
-    s17 fact 以「据悉」开头（r7）。其余 15 条为通过 8 条校验的合格线索卡假响应。
+    """内置确定性假响应（v0.4 线索卡）。包含 7 条故意不合格：
+    s02 缺 stage（r2）；s04 anchor 国家与品类都空（r3）；
+    s05 verify_plan 只有 2 条（r4）；s07 money_hypothesis 缺 form（r5）；
+    s08 fact 以「据悉」开头（r7）；s11 stage=S3 但 signal 无幅度且品类泛（r9）；
+    s15 signal 推测词 ≥2（r10）。其余为通过 10 条校验的合格线索卡假响应。
     """
 
     COARSE_TOKENS = (220, 60)    # (prompt_tokens, completion_tokens)
@@ -244,12 +290,12 @@ class DryRunClient:
         return resp, self.COARSE_TOKENS
 
     def _valid_card(self, sample_id: str, idx: int) -> dict:
-        """一条通过 8 条校验的合格线索卡假响应。"""
+        """一条通过校验的合格线索卡假响应（signal 含数字，避免 S3 触发 r9）。"""
         return {
             "fact": f"{sample_id} 的确定性假响应：某国某品类进口额连续增长，终端价差约3倍。",
             "stage": OPPORTUNITY_STAGES[idx % 4],
             "anchor": {"country": "越南", "category": "手机配件", "hs_hint": ""},
-            "signal": "某国该品类进口额连续增长，平台类目爆发",
+            "signal": "某国该品类进口额连续18个月增长，平台类目爆发",
             "verify_plan": [
                 "查该品类HS编码近12个月进口额，用UN Comtrade",
                 "查该品类电商平台类目销量榜单",
@@ -270,21 +316,29 @@ class DryRunClient:
     def deep(self, item: dict, coarse_res: dict) -> tuple[dict | None, str, tuple[int, int]]:
         idx = self.samples.index(item)
         sample_id = item.get("id", "")
-        if sample_id == "s03":  # r2：缺 stage（也会连带 r1）
+        if sample_id == "s02":  # r2：缺 stage（也会连带 r1）
             resp = self._valid_card(sample_id, idx)
             resp.pop("stage")
-        elif sample_id == "s07":  # r3：anchor 国家与品类都空
+        elif sample_id == "s04":  # r3：anchor 国家与品类都空
             resp = self._valid_card(sample_id, idx)
             resp["anchor"] = {"country": "", "category": "", "hs_hint": ""}
-        elif sample_id == "s11":  # r4：verify_plan 只有 2 条
+        elif sample_id == "s05":  # r4：verify_plan 只有 2 条
             resp = self._valid_card(sample_id, idx)
             resp["verify_plan"] = resp["verify_plan"][:2]
-        elif sample_id == "s15":  # r5：money_hypothesis 缺 form
+        elif sample_id == "s07":  # r5：money_hypothesis 缺 form
             resp = self._valid_card(sample_id, idx)
             resp["money_hypothesis"] = {"payer": "某国采购商", "your_cut": "差价", "status": "待验证"}
-        elif sample_id == "s17":  # r7：fact 以「据悉」开头
+        elif sample_id == "s08":  # r7：fact 以「据悉」开头
             resp = self._valid_card(sample_id, idx)
             resp["fact"] = "据悉，某国将放宽该品类进口限制，市场供给格局将变。"
+        elif sample_id == "s11":  # r9：S3 但 signal 无幅度 + category 泛词
+            resp = self._valid_card(sample_id, idx)
+            resp["stage"] = "S3"
+            resp["signal"] = "关税政策可能影响该品类出口"
+            resp["anchor"] = {"country": "某国", "category": "先进制造", "hs_hint": ""}
+        elif sample_id == "s15":  # r10：signal 推测词 ≥2
+            resp = self._valid_card(sample_id, idx)
+            resp["signal"] = "该品类需求可能回暖，或将吸引更多买家，预计价格走高"
         else:  # 合格线索卡假响应
             resp = self._valid_card(sample_id, idx)
         return resp, json.dumps(resp, ensure_ascii=False), self.DEEP_TOKENS
@@ -342,6 +396,8 @@ def call_llm(client, model: str, prompt: str, payload: dict) -> tuple[str, tuple
 class RealClient:
     """真实模式客户端：coarse 用 flash，deep 用 pro，统一返回与 DryRunClient 相同的接口。"""
 
+    PAYLOAD_KEYS = ("id", "title", "summary", "content", "published_at", "source", "url")
+
     def __init__(self, raw_client, coarse_model: str, deep_model: str,
                  coarse_prompt: str, deep_prompt: str):
         self.raw = raw_client
@@ -351,12 +407,12 @@ class RealClient:
         self.deep_prompt = deep_prompt
 
     def coarse(self, item: dict) -> tuple[dict | None, tuple[int, int]]:
-        payload = {k: item.get(k) for k in ("id", "title", "summary", "published_at", "source", "url")}
+        payload = {k: item.get(k) for k in self.PAYLOAD_KEYS}
         text, tokens = call_llm(self.raw, self.coarse_model, self.coarse_prompt, payload)
         return parse_json(text), tokens
 
     def deep(self, item: dict, coarse_res: dict) -> tuple[dict | None, str, tuple[int, int]]:
-        payload = {k: item.get(k) for k in ("id", "title", "summary", "published_at", "source", "url")}
+        payload = {k: item.get(k) for k in self.PAYLOAD_KEYS}
         payload["coarse"] = coarse_res
         text, tokens = call_llm(self.raw, self.deep_model, self.deep_prompt, payload)
         return parse_json(text), text, tokens
@@ -395,13 +451,16 @@ def short_four(res: dict, limit: int = 80) -> str:
     return s if len(s) <= limit else s[: limit - 3] + "…"
 
 
-def write_report(rows: list[dict], summary: dict) -> None:
-    REPORT_PATH.parent.mkdir(parents=True, exist_ok=True)
+def write_report(rows: list[dict], summary: dict, set_name: str, report_path: Path) -> None:
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    set_label = "gold（含机会新闻）" if set_name == "gold" else "live（华尔街见闻真实快讯）"
     lines = [
         "# T0 加工质量基准题报告",
         "",
         "- 生成时间：由脚本自动生成",
-        "- 版本：v0.3（提示词 v0.3 + 8 条校验，输出线索卡）",
+        "- 测试集：{set_label}".format(set_label=set_label),
+        "- 版本：v0.4（提示词 v0.4 + 10 条校验，输出线索卡）",
+        "- 硬过滤 {hard} 条 / 进入模型 {model} 条 / ok {ok} / rejected {rejected}".format(**summary),
         "- 样本数：{total}；ok：{ok}；rejected：{rejected}；skipped：{skipped}；failed：{failed}".format(**summary),
         "- 总花费：{cost_total:.4f} 元；平均每条：{cost_avg:.4f} 元".format(**summary),
         "",
@@ -422,7 +481,9 @@ def write_report(rows: list[dict], summary: dict) -> None:
     lines.append("## 汇总")
     lines.append("")
     lines.append(f"- 总数：{summary['total']}")
-    lines.append(f"- ok（通过 8 条校验）：{summary['ok']}")
+    lines.append(f"- 硬过滤命中：{summary['hard']}（标题/正文命中公告类词，不进模型，不计费）")
+    lines.append(f"- 进入模型：{summary['model']}")
+    lines.append(f"- ok（通过 10 条校验）：{summary['ok']}")
     lines.append(f"- rejected（被校验拦下）：{summary['rejected']}")
     lines.append("- rejected 按原因分类计数：")
     if summary["reject_reasons"]:
@@ -441,22 +502,27 @@ def write_report(rows: list[dict], summary: dict) -> None:
     lines.append("合格率只统计 A + B。")
     lines.append("人工盲评合格率：__ / 20（由人来填，脚本不猜）")
     lines.append("")
-    REPORT_PATH.write_text("\n".join(lines), encoding="utf-8")
-    print(f"[完成] 报告已写入：{REPORT_PATH}")
+    report_path.write_text("\n".join(lines), encoding="utf-8")
+    print(f"[完成] 报告已写入：{report_path}")
 
 
 # ---------------------------------------------------------------------------
 # 主流程
 # ---------------------------------------------------------------------------
 def main() -> None:
-    parser = argparse.ArgumentParser(description="T0 加工质量基准题：粗筛->深加工->8条校验->报告")
+    parser = argparse.ArgumentParser(description="T0 加工质量基准题：硬过滤->粗筛->深加工->10条校验->报告")
     parser.add_argument("--dry-run", action="store_true", help="不调用 API，用内置假响应跑通全流程")
     parser.add_argument("--limit", type=int, default=None, help="只跑前 N 条（便于省钱试跑）")
+    parser.add_argument("--set", choices=["gold", "live"], default="gold",
+                        help="测试集：gold=含机会新闻 / live=华尔街见闻真实快讯（默认 gold）")
     args = parser.parse_args()
+
+    samples_path = SAMPLES_GOLD_PATH if args.set == "gold" else SAMPLES_LIVE_PATH
+    report_path = REPORT_GOLD_PATH if args.set == "gold" else REPORT_LIVE_PATH
 
     coarse_prompt = load_prompt(COARSE_PROMPT_PATH)
     deep_prompt = load_prompt(DEEP_PROMPT_PATH)
-    samples = load_samples(SAMPLES_PATH)
+    samples = load_samples(samples_path)
     if args.limit is not None:
         samples = samples[: args.limit]
     total = len(samples)
@@ -470,44 +536,53 @@ def main() -> None:
     rows = []
     reject_reason_counter: dict[str, int] = {}
     total_cost = 0.0
-    n_ok = n_rejected = n_skipped = n_failed = 0
+    n_ok = n_rejected = n_skipped = n_failed = n_hard = 0
     RAW_DIR.mkdir(parents=True, exist_ok=True)
 
     for i, item in enumerate(samples, 1):
         sample_id = item.get("id", f"line{i}")
         title = item.get("title", "")
-        coarse_res, coarse_tokens = client.coarse(item)
-        c_cost = cost_of("coarse", coarse_tokens)
 
-        status, reason, four, stage, pt, ct, cost = "failed", "", "", "-", 0, 0, 0.0
-        deep_res, deep_raw_text, deep_reasons = None, "", None
-        if coarse_res is None or not isinstance(coarse_res, dict):
-            status, reason, cost = "failed", "粗筛输出无法解析", c_cost
-        elif coarse_res.get("is_economic") is not True:
-            status, reason, cost = "skipped", "粗筛判定非经济，未深加工", c_cost
+        # 硬过滤：模型调用之前执行，命中不计费
+        hf_word = hard_filter(item)
+        if hf_word:
+            n_hard += 1
+            status, reason, four, stage = "skipped", f"hard_filter:{hf_word}", "", "-"
+            pt, ct, cost = 0, 0, 0.0
+            coarse_res, deep_res, deep_raw_text, deep_reasons = None, None, "", None
         else:
-            deep_res, deep_raw_text, deep_tokens = client.deep(item, coarse_res)
-            d_cost = cost_of("deep", deep_tokens)
-            pt, ct = deep_tokens
-            cost = c_cost + d_cost
-            if deep_res is None:
-                status, reason = "failed", "深加工输出无法解析为 JSON"
+            coarse_res, coarse_tokens = client.coarse(item)
+            c_cost = cost_of("coarse", coarse_tokens)
+
+            status, reason, four, stage, pt, ct, cost = "failed", "", "", "-", 0, 0, 0.0
+            deep_res, deep_raw_text, deep_reasons = None, "", None
+            if coarse_res is None or not isinstance(coarse_res, dict):
+                status, reason, cost = "failed", "粗筛输出无法解析", c_cost
+            elif coarse_res.get("is_economic") is not True:
+                status, reason, cost = "skipped", "粗筛判定非经济，未深加工", c_cost
             else:
-                ok, reasons = validate(deep_res)
-                deep_reasons = reasons
-                four = short_four(deep_res)
-                if isinstance(deep_res, dict):
-                    stage = deep_res.get("stage") or "-"
-                if ok:
-                    status = "ok"
-                    n_ok += 1
+                deep_res, deep_raw_text, deep_tokens = client.deep(item, coarse_res)
+                d_cost = cost_of("deep", deep_tokens)
+                pt, ct = deep_tokens
+                cost = c_cost + d_cost
+                if deep_res is None:
+                    status, reason = "failed", "深加工输出无法解析为 JSON"
                 else:
-                    status = "rejected"
-                    n_rejected += 1
-                    reason = "；".join(reasons)
-                    for r in reasons:
-                        label = r.split(":")[0] if ":" in r else r
-                        reject_reason_counter[label] = reject_reason_counter.get(label, 0) + 1
+                    ok, reasons = validate(deep_res)
+                    deep_reasons = reasons
+                    four = short_four(deep_res)
+                    if isinstance(deep_res, dict):
+                        stage = deep_res.get("stage") or "-"
+                    if ok:
+                        status = "ok"
+                        n_ok += 1
+                    else:
+                        status = "rejected"
+                        n_rejected += 1
+                        reason = "；".join(reasons)
+                        for r in reasons:
+                            label = r.split(":")[0] if ":" in r else r
+                            reject_reason_counter[label] = reject_reason_counter.get(label, 0) + 1
 
         # 每条结果的完整 JSON 落盘（含粗筛/深加工原文/校验原因），便于复盘与 prompt-log
         record = {
@@ -534,8 +609,11 @@ def main() -> None:
         })
         print(f"[{i}/{total}] {sample_id} {status}  cost={cost:.4f}")
 
+    n_model = total - n_hard
     summary = {
         "total": total,
+        "hard": n_hard,
+        "model": n_model,
         "ok": n_ok,
         "rejected": n_rejected,
         "skipped": n_skipped,
@@ -544,9 +622,10 @@ def main() -> None:
         "cost_total": total_cost,
         "cost_avg": total_cost / total if total else 0.0,
     }
-    write_report(rows, summary)
+    write_report(rows, summary, args.set, report_path)
 
-    print(f"\n汇总：总数={total} ok={n_ok} rejected={n_rejected} skipped={n_skipped} failed={n_failed}")
+    print(f"\n汇总[{args.set}]：硬过滤={n_hard} 进模型={n_model} ok={n_ok} rejected={n_rejected} "
+          f"skipped={n_skipped} failed={n_failed}")
     print(f"总花费={total_cost:.4f} 元，平均每条={summary['cost_avg']:.4f} 元")
 
 

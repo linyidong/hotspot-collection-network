@@ -93,7 +93,8 @@
   "anchor": {
     "country": "目标国家（或区域）",
     "category": "具体品类",
-    "hs_hint": "可能的 HS 编码（不确定可留空）"
+    "hs_hint": "可能的 HS 编码（不确定可留空）",
+    "vertical": "行业标签（宠物经济|银发经济|母婴|户外|家居|美妆个护|数码配件|食品饮料|汽车后市场|其他）"
   },
   "signal": "这条新闻触发了什么信号（哪条数据/哪个事件）",
   "verify_plan": [
@@ -114,10 +115,23 @@
     "how": "怎么执行"
   },
   "verify_cost": {"money": "验证要花多少钱", "time": "要花多久"},
+  "feasibility": {
+    "needs_license": false,
+    "needs_capital": false,
+    "needs_team": false,
+    "needs_identity": false,
+    "reason": "为什么这件事在你当前能力范围内"
+  },
   "verifiable_data": ["具体可查的数据/指标"],
   "confidence": "high|medium|low"
 }
 ```
+
+> **`vertical` 与 6 类机制是两个维度，不要混。**
+> 机制（stage 对应的机会类型）回答"靠什么赚钱"，`vertical` 回答"在哪个行业赚"。
+> 例：宠物 × 消费趋势 = 宠物智能用品小众刚需；宠物 × 跨境差价 = 国产宠物用品出海；宠物 × 供应链缺货 = 某类宠物食品断货。
+>
+> **`feasibility` 是能力闸**，判定依据见 `docs/capability-profile.md`：任一项为 `true` → 判 `rejected`（`r11_超出个人能力`）。
 
 **评分口径（人工盲评用）**：
 
