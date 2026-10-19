@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<!-- 模块：3D 大屏稿（three.js 真 3D 地球）。职责：沿用 A 版 v2 信息架构，仅将中央地球区换成 three.js 3D（星空/球体/大气辉光/8 热点/飞线/自写交互）。本地 vendor three.min.js，零其他依赖，双击可开。 -->
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>热点采集网络 · 3D 大屏稿</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{overflow-x:hidden}
+body{background:#060a12;color:#cdd9ee;font:13px/1.5 "Microsoft YaHei","PingFang SC",Arial,sans-serif;min-width:1180px;display:flex;flex-direction:column;height:100vh}
+/* 顶栏 */
+header{height:44px;flex:none;display:flex;align-items:center;gap:14px;padding:0 14px;border-bottom:1px solid rgba(120,180,255,.18);background:linear-gradient(180deg,rgba(28,58,106,.5),rgba(6,10,18,0))}
+header h1{font-size:16px;color:#eaf2ff;letter-spacing:1px;white-space:nowrap}
+.sub{font-size:10px;color:#f5c542;border:1px solid rgba(245,197,66,.55);padding:0 5px;border-radius:3px;white-space:nowrap}
+#stat{margin-left:auto;font-size:12px;color:#2ecc8f;white-space:nowrap}
+#stat .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#2ecc8f;margin-right:5px;animation:bl 1.4s infinite}
+@keyframes bl{50%{opacity:.25}}
+#clk{font-size:12px;color:#9fb4d8;font-family:Consolas,monospace;white-space:nowrap}
+.src{display:flex;gap:4px;align-items:center}
+.src i{width:9px;height:9px;border-radius:2px}
+.sg{background:#2ecc8f}.sr{background:#ff5b5b}
+#btn{padding:5px 14px;border:0;border-radius:4px;background:linear-gradient(90deg,#17b3c9,#2e8bf5);color:#fff;font-size:12px;cursor:pointer;white-space:nowrap}
+#btn:disabled{opacity:.45;cursor:default}
+.spend{font-size:12px;color:#8fa3c4;white-space:nowrap}
+/* 主体 */
+main{flex:1;min-height:0;display:flex;gap:10px;padding:10px}
+/* 左抽屉 */
+#drw{width:220px;flex:none;background:rgba(255,255,255,.035);border:1px solid rgba(120,180,255,.14);border-radius:8px;display:flex;flex-direction:column;transition:width .2s;overflow:hidden}
+#drw.coll{width:36px}
+.dhd{height:32px;flex:none;display:flex;align-items:center;gap:6px;padding:0 8px;border-bottom:1px solid rgba(120,180,255,.12)}
+.dtt{font-size:12px;color:#9fb4d8;white-space:nowrap}
+#dtog{margin-left:auto;width:22px;height:22px;border:0;border-radius:4px;background:rgba(120,180,255,.15);color:#cfe3ff;cursor:pointer;font-size:14px}
+.dbody{flex:1;min-height:0;overflow:auto;padding:8px;display:flex;flex-direction:column;gap:10px}
+.dico{display:none;flex:1;flex-direction:column;align-items:center;gap:14px;padding-top:14px}
+#drw.coll .dbody{display:none}
+#drw.coll .dico{display:flex}
+.dico span{width:22px;height:22px;line-height:22px;text-align:center;border-radius:4px;background:rgba(120,180,255,.15);color:#9fb4d8;font-size:12px}
+.g-t{font-size:11px;color:#7c8aa5;margin-bottom:5px;white-space:nowrap}
+.g-t em{font-style:normal;color:#4a5878;font-size:10px}
+.opts{display:flex;flex-wrap:wrap;gap:5px}
+.op{font-size:11px;padding:2px 7px;border-radius:3px;border:1px solid rgba(120,180,255,.18);color:#9fb4d8;cursor:pointer;white-space:nowrap}
+.op.sel{border-color:#35d0e8;color:#eaf6ff;box-shadow:0 0 6px rgba(53,208,232,.4)}
+/* 中央 3D 地球 */
+#cen{flex:1;min-width:0;display:flex;flex-direction:column;gap:6px}
+#g3d{flex:1;min-height:0;position:relative}
+#g3d canvas{display:block;width:100%;height:100%}
+.dgl{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:13px;color:#cdd9ee;text-align:center;display:none;background:rgba(22,40,72,.85);border:1px solid rgba(120,180,255,.3);border-radius:8px;padding:16px 22px}
+.dgl.show{display:block}
+.dgl a{color:#35d0e8}
+.lg{flex:none;display:flex;gap:12px;justify-content:center;font-size:11px;color:#9fb4d8}
+.lg i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:4px;vertical-align:-1px}
+.i1{background:#4d9de0}.i2{background:#8a63f5}.i3{background:#f5a623}.i4{background:#2ecc8f}
+/* 右侧面板网格 2×3 */
+#grid{width:min(600px,34vw);flex:none;display:grid;grid-template-columns:1fr 1fr;grid-auto-rows:1fr;gap:10px;min-height:0}
+.panel{min-width:0;background:rgba(255,255,255,.035);border:1px solid rgba(120,180,255,.14);border-radius:8px;padding:7px;display:flex;flex-direction:column;min-height:0}
+.pt{flex:none;display:flex;align-items:center;justify-content:space-between;font-size:12px;color:#9fb4d8;margin-bottom:6px}
+.bd{font-size:10px;padding:0 5px;border-radius:3px;white-space:nowrap}
+.bd.live{background:rgba(46,204,143,.18);color:#2ecc8f;border:1px solid rgba(46,204,143,.4)}
+.bd.wait{background:rgba(245,166,35,.15);color:#f5a623;border:1px solid rgba(245,166,35,.4)}
+.bd.na{background:rgba(107,122,148,.15);color:#7c8aa5;border:1px solid rgba(107,122,148,.4)}
+.pc{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;gap:6px}
+/* 线索卡 */
+.card{min-width:0;flex:1;background:rgba(22,40,72,.5);border:1px solid rgba(120,180,255,.12);border-left:3px solid #2e8bf5;border-radius:5px;padding:6px 8px}
+.card.s1{border-left-color:#4d9de0}.card.s2{border-left-color:#8a63f5}.card.s3{border-left-color:#f5a623}.card.s4{border-left-color:#2ecc8f}
+.card.off{border-left-color:#6b7a94;opacity:.6;background:rgba(60,72,92,.35)}
+.ch{display:flex;align-items:center;gap:5px;margin-bottom:4px}
+.st{font-size:10px;padding:0 4px;border-radius:3px;color:#06121f;white-space:nowrap}
+.st.s1{background:#4d9de0}.st.s2{background:#8a63f5}.st.s3{background:#f5a623}.st.s4{background:#2ecc8f}
+.tg{font-size:10px;color:#9fb4d8;border:1px solid rgba(159,180,216,.4);padding:0 4px;border-radius:3px;white-space:nowrap}
+.gr{font-size:10px;font-weight:700;width:15px;height:15px;line-height:15px;text-align:center;border-radius:3px;margin-left:auto;flex:none}
+.a{background:#ff5b5b;color:#fff}.b{background:#f5a623;color:#1a1205}.c{background:#5a6b85;color:#e6edf7}
+.fact{font-size:11px;color:#e6efff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:3px}
+.next{font-size:10px;color:#35d0e8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:3px}
+.cf{display:flex;justify-content:space-between;gap:6px;font-size:10px;color:#7c8aa5}
+.ex{color:#ffb020}
+/* 底栏 */
+footer{height:28px;flex:none;display:flex;align-items:center;justify-content:center;gap:18px;font-size:11px;color:#7c8aa5;border-top:1px solid rgba(120,180,255,.12);white-space:nowrap}
+footer b{color:#9fb4d8}
+</style>
+</head>
+<body>
+<header>
+  <h1>热点采集网络</h1>
+  <span class="sub">示例数据 · 布局稿 · 3D</span>
+  <span id="stat"><span class="dot"></span>运行中 · 已采集 128 条</span>
+  <span id="clk"></span>
+  <span class="src"><i class="sg" title="财联社"></i><i class="sg" title="新浪财经"></i><i class="sg" title="金十数据"></i><i class="sg" title="东方财富"></i><i class="sr" title="雪球"></i></span>
+  <span class="spend">今日花费 ¥0.87</span>
+  <button id="btn">一键采集</button>
+</header>
+<main>
+  <aside id="drw">
+    <div class="dhd"><span class="dtt">图层 / 筛选</span><button id="dtog">‹</button></div>
+    <div class="dbody">
+      <div><div class="g-t">时间窗 <em>单选 · 默认 3 小时</em></div>
+        <div class="opts" data-g="time"><span class="op">1小时</span><span class="op">6小时</span><span class="op">24小时</span><span class="op sel">3小时</span><span class="op">48小时</span><span class="op">7天</span><span class="op">全部</span></div></div>
+      <div><div class="g-t">阶段 <em>复选</em></div>
+        <div class="opts" data-g="stage"><span class="op sel">S1 选品</span><span class="op sel">S2 供应链</span><span class="op sel">S3 交易结构</span><span class="op sel">S4 客户开发</span></div></div>
+      <div><div class="g-t">行业 <em>复选</em></div>
+        <div class="opts" data-g="ind"><span class="op sel">宠物经济</span><span class="op sel">母婴</span><span class="op sel">家居</span><span class="op sel">数码配件</span><span class="op sel">跨境物流</span><span class="op sel">其他</span></div></div>
+      <div><div class="g-t">等级 <em>复选</em></div>
+        <div class="opts" data-g="grade"><span class="op sel">A</span><span class="op sel">B</span><span class="op sel">C</span></div></div>
+    </div>
+    <div class="dico"><span>时</span><span>段</span><span>业</span><span>级</span></div>
+  </aside>
+  <section id="cen">
+    <div id="g3d"><div class="dgl" id="dgl">当前浏览器不支持 WebGL，无法显示 3D 地球。<br>请改用 <a href="./mockup-a.html">Canvas 2D 版（mockup-a.html）</a> 查看。</div></div>
+    <div class="lg"><span><i class="i1"></i>S1 选品</span><span><i class="i2"></i>S2 供应链</span><span><i class="i3"></i>S3 交易结构</span><span><i class="i4"></i>S4 客户开发</span></div>
+  </section>
+  <section id="grid">
+    <section class="panel"><div class="pt"><span>新增（3h）</span><span class="bd live">实时</span></div><div class="pc" id="pNew"></div></section>
+    <section class="panel"><div class="pt"><span>A 级线索</span><span class="bd live">实时</span></div><div class="pc" id="pA"></div></section>
+    <section class="panel"><div class="pt"><span>S1 选品</span><span class="bd wait">待审</span></div><div class="pc" id="pS1"></div></section>
+    <section class="panel"><div class="pt"><span>S3 交易结构</span><span class="bd wait">待审</span></div><div class="pc" id="pS3"></div></section>
+    <section class="panel"><div class="pt"><span>更早</span><span class="bd wait">待审</span></div><div class="pc" id="pOld"></div></section>
+    <section class="panel"><div class="pt"><span>已排除</span><span class="bd na">已排除</span></div><div class="pc" id="pEx"></div></section>
+  </section>
+</main>
+<footer><span>v0.1 布局稿</span><b>光点 8</b><span>数据源 5/5</span><span>本轮 2m14s</span><span>示例数据 · 布局稿</span></footer>
+<script src="./vendor/three.min.js"></script>
+<script>
+const $=i=>document.getElementById(i);
+// 面板数据：0阶段 1行业 2等级 3事实 4钱流 5时间 6下一步 7是否排除
+const PAN={
+pNew:[["S1 选品","宠物经济","A","出口宠物玩具小单询盘 3 笔，FOB 价差 15%","货款利差","14:32","先回 3 个询盘报 FOB 价"],["S2 供应链","宠物经济","A","本地宠物医院月耗 3 吨冻干粮，直供价差 12%","货款利差","13:05","联系采购要 1 吨试单"]],
+pA:[["S4 客户开发","母婴","A","小区宝妈群 200 人求辅食带货，佣金 15%","佣金抽成","12:47","备 10 份试吃发群主"]],
+pS1:[["S1 选品","数码配件","B","东莞电子厂尾单数据线 5 万条，账期 60 天","货款利差","12:02","要样品和库存清单"]],
+pS3:[["S3 交易结构","母婴","C","外贸公司寻注塑模具厂，打样费垫资方案","垫资服务","11:30","报打样费垫资条件"]],
+pOld:[["S4 客户开发","宠物经济","B","社区团购群主月销猫砂 800 袋，可分佣 8%","佣金抽成","昨日","约群主试发 1 箱猫砂"],["S1 选品","家居","B","夜市摊主日售手机壳 120 件，找源头批发","货款利差","昨日","寄 3 款样品谈批发价"]],
+pEx:[["S2 供应链","宠物经济","C","跨境宠物食品清关需资质","已排除","昨日","",1]]
+};
+function cl(s){const c=s.slice(0,2).toLowerCase();return c==="s1"||c==="s2"||c==="s3"||c==="s4"?c:(s==="A"?"a":s==="B"?"b":"c");}
+function cd(d){return '<div class="card '+(d[7]?'off ':'')+cl(d[0])+'"><div class="ch"><span class="st '+cl(d[0])+'">'+d[0]+'</span><span class="tg">'+d[1]+'</span><span class="gr '+cl(d[2])+'">'+d[2]+'</span></div><div class="fact">'+d[3]+'</div>'+(d[7]?'':'<div class="next">→ 下一步：'+d[6]+'</div>')+'<div class="cf"><span>'+(d[7]?'<span class="ex">需资质，已排除</span>':'钱流：'+d[4])+'</span><span>'+d[5]+'</span></div></div>';}
+Object.keys(PAN).forEach(k=>PAN[k].forEach(d=>$(k).innerHTML+=cd(d)));
+// 抽屉折叠
+const drw=$("drw"),dtog=$("dtog");
+dtog.onclick=()=>{drw.classList.toggle("coll");dtog.textContent=drw.classList.contains("coll")?"›":"‹";};
+// 筛选假交互：时间窗单选，其余复选
+document.querySelectorAll(".opts").forEach(o=>{const g=o.dataset.g;o.querySelectorAll(".op").forEach(op=>op.onclick=()=>{if(g==="time"){o.querySelectorAll(".op").forEach(x=>x.classList.remove("sel"));op.classList.add("sel");}else op.classList.toggle("sel");});});
+// 时钟（UTC+8，每秒更新）
+function clk(){const d=new Date(Date.now()+8*3600e3),p=n=>(n<10?"0":"")+n;$("clk").textContent="UTC+8 "+d.getUTCFullYear()+"-"+p(d.getUTCMonth()+1)+"-"+p(d.getUTCDate())+" "+p(d.getUTCHours())+":"+p(d.getUTCMinutes())+":"+p(d.getUTCSeconds());}
+clk();setInterval(clk,1000);
+// 一键采集
+const btn=$("btn"),stat=$("stat");
+btn.onclick=()=>{if(btn.disabled)return;btn.disabled=true;let n=0;stat.innerHTML='<span class="dot" style="background:#f5a623"></span>采集中 …';
+const iv=setInterval(()=>{n++;stat.innerHTML='<span class="dot" style="background:#f5a623"></span>采集中 '+n+'s …';},1000);
+setTimeout(()=>{clearInterval(iv);btn.disabled=false;stat.innerHTML='<span class="dot"></span>运行中 · 新增 3 条';},3000);};
+// ===== three.js 3D 地球 =====
+window.__err=[];addEventListener("error",e=>window.__err.push(String(e.message)));
+const el=$("g3d"),dgl=$("dgl");
+let webgl=false;
+try{
+if(!document.createElement("canvas").getContext("webgl")&&!document.createElement("canvas").getContext("experimental-webgl"))throw new Error("nowebgl");
+const D2R=Math.PI/180;
+function latLon(lat,lon,r){const a=lat*D2R,b=lon*D2R;return new THREE.Vector3(Math.cos(a)*Math.sin(b)*r,Math.sin(a)*r,Math.cos(a)*Math.cos(b)*r);}
+const W=el.clientWidth,H=el.clientHeight;
+const sc=new THREE.Scene();sc.background=new THREE.Color(0x060a12);
+const cam=new THREE.PerspectiveCamera(45,W/H,0.1,300);cam.position.set(0,0,4);
+const rn=new THREE.WebGLRenderer({antialias:true});
+rn.setPixelRatio(Math.min(devicePixelRatio,2));rn.setSize(W,H,false);el.appendChild(rn.domElement);
+if(!rn.getContext())throw new Error("nowebgl");
+webgl=true;
+const globe=new THREE.Group();sc.add(globe);
+// 星空：1200 星点，shader 逐点闪烁
+const sN=1200,sp=new Float32Array(sN*3),pha=new Float32Array(sN);
+for(let i=0;i<sN;i++){const v=new THREE.Vector3().randomDirection().multiplyScalar(18+Math.random()*42);sp[i*3]=v.x;sp[i*3+1]=v.y;sp[i*3+2]=v.z;pha[i]=Math.random();}
+const sg=new THREE.BufferGeometry();sg.setAttribute("position",new THREE.BufferAttribute(sp,3));sg.setAttribute("aP",new THREE.BufferAttribute(pha,1));
+const sm=new THREE.ShaderMaterial({uniforms:{uT:{value:0},uC:{value:new THREE.Color(0xbfd9ff)}},transparent:true,depthWrite:false,
+vertexShader:"attribute float aP;uniform float uT;varying float vP;void main(){vP=aP;vec4 mv=modelViewMatrix*vec4(position,1.0);gl_PointSize=(150.0/-mv.z)*(0.5+0.5*sin(uT*1.2+aP*6.283));gl_Position=projectionMatrix*mv;}",
+fragmentShader:"uniform float uT;uniform vec3 uC;varying float vP;void main(){vec2 c=gl_PointCoord-0.5;float d=length(c);float a=smoothstep(0.5,0.08,d)*(0.4+0.6*sin(uT*1.6+vP*6.283));if(a<0.03)discard;gl_FragColor=vec4(uC,a);}"});
+sc.add(new THREE.Points(sg,sm));
+// 球体 + 大气辉光（backside 加法混合）
+const sp1=new THREE.Mesh(new THREE.SphereGeometry(1,48,32),new THREE.MeshBasicMaterial({color:0x0c2c52,transparent:true,opacity:.93}));
+globe.add(sp1);
+const at1=new THREE.Mesh(new THREE.SphereGeometry(1.07,48,24),new THREE.MeshBasicMaterial({color:0x2f7fd4,side:THREE.BackSide,transparent:true,opacity:.4,blending:THREE.AdditiveBlending,depthWrite:false}));
+const at2=new THREE.Mesh(new THREE.SphereGeometry(1.16,48,24),new THREE.MeshBasicMaterial({color:0x2f7fd4,side:THREE.BackSide,transparent:true,opacity:.12,blending:THREE.AdditiveBlending,depthWrite:false}));
+globe.add(at1,at2);
+// 经纬网格（自建 LineSegments：经线 12 条、纬线 5 条）
+const garr=[];
+for(let lo=0;lo<360;lo+=30){let a=[];for(let la=-90;la<=90;la+=6)a.push(latLon(la,lo,1.004));for(let i=0;i<a.length-1;i++){garr.push(a[i].x,a[i].y,a[i].z,a[i+1].x,a[i+1].y,a[i+1].z);}}
+for(let la=-60;la<=60;la+=30){let a=[];for(let lo=0;lo<=360;lo+=6)a.push(latLon(la,lo,1.004));for(let i=0;i<a.length-1;i++){garr.push(a[i].x,a[i].y,a[i].z,a[i+1].x,a[i+1].y,a[i+1].z);}}
+const gg=new THREE.BufferGeometry();gg.setAttribute("position",new THREE.Float32BufferAttribute(garr,3));
+globe.add(new THREE.LineSegments(gg,new THREE.LineBasicMaterial({color:0x3d6ea8,transparent:true,opacity:.35})));
+// 8 热点：按 S1 蓝 / S2 紫 / S3 橙 / S4 绿，核心点 + 脉冲环
+const HPTS=[[40,116,0x4d9de0],[23,113,0x8a63f5],[52,13,0xf5a623],[0,20,0xf5a623],[40,-75,0x4d9de0],[48,2,0x8a63f5],[33,-118,0x2ecc8f],[-15,-48,0x2ecc8f]];
+const hot=HPTS.map(p=>{const g=new THREE.Group();g.position.copy(latLon(p[0],p[1],1.02));
+const core=new THREE.Mesh(new THREE.SphereGeometry(.022,12,8),new THREE.MeshBasicMaterial({color:p[2]}));
+const ring=new THREE.Mesh(new THREE.RingGeometry(.05,.1,32),new THREE.MeshBasicMaterial({color:p[2],transparent:true,opacity:.7,side:THREE.DoubleSide,blending:THREE.AdditiveBlending,depthWrite:false}));
+g.add(core,ring);globe.add(g);return{ring,ph:p[0]+p[1]};});
+// 飞线：≥3 条大圆弧（QuadraticBezierCurve3），沿线流动光点
+const PAIRS=[[0,3],[1,4],[2,5],[3,6]];
+function mkLine(ai,bi,color){const pa=latLon(HPTS[ai][0],HPTS[ai][1],1.05),pb=latLon(HPTS[bi][0],HPTS[bi][1],1.05);
+const mid=pa.clone().add(pb).multiplyScalar(.5).normalize().multiplyScalar(1.3);
+const c=new THREE.QuadraticBezierCurve3(pa,mid,pb);
+const L=new THREE.Line(new THREE.BufferGeometry().setFromPoints(c.getPoints(48)),new THREE.LineBasicMaterial({color,transparent:true,opacity:.75,blending:THREE.AdditiveBlending}));
+const dot=new THREE.Mesh(new THREE.SphereGeometry(.02,8,8),new THREE.MeshBasicMaterial({color:0x9fd8ff}));
+globe.add(L,dot);return{c,dot};}
+const lines=PAIRS.map((p,i)=>mkLine(p[0],p[1],[0x35d0e8,0x4d9de0,0x8a63f5,0x2ecc8f][i%4]));
+// 交互：拖拽旋转 + 滚轮缩放 + 惯性 + 空闲 3s 自动自转
+let drag=null,ivx=0,ivy=0,auto=performance.now();
+el.addEventListener("pointerdown",e=>{drag={x:e.clientX,y:e.clientY};auto=performance.now();ivx=ivy=0;el.setPointerCapture(e.pointerId);});
+addEventListener("pointermove",e=>{if(!drag)return;const dx=e.clientX-drag.x,dy=e.clientY-drag.y;drag.x=e.clientX;drag.y=e.clientY;
+globe.rotation.y+=dx*.006;globe.rotation.x=Math.max(-1.3,Math.min(1.3,globe.rotation.x+dy*.006));
+ivx=dx*.006*.5;ivy=dy*.006*.5;auto=performance.now();});
+addEventListener("pointerup",()=>{drag=null;});
+addEventListener("wheel",e=>{e.preventDefault();cam.position.z=Math.min(7,Math.max(2.2,cam.position.z*(1+e.deltaY*.0012)));auto=performance.now();},{passive:false});
+// 帧率统计（滚动 6 秒平均，暴露给自测）
+let fpsN=0,fpsT=performance.now(),fpsA=[];window.__fps5=0;
+// 动画
+const clkT=new THREE.Clock();
+(function tick(){const now=performance.now(),t=clkT.getElapsedTime();
+sm.uniforms.uT.value=t;
+if(drag){auto=now;}
+else if(ivx||ivy){globe.rotation.y+=ivx;globe.rotation.x=Math.max(-1.3,Math.min(1.3,globe.rotation.x+ivy));ivx*=.94;ivy*=.94;auto=now;}
+else if(now-auto>3000){globe.rotation.y+=.003;}
+hot.forEach((h,i)=>{const k=(now*.0008+i*.17)%1,s=.3+k*.95;h.ring.scale.set(s,s,1);h.ring.material.opacity=.7*(1-k);h.ring.quaternion.copy(cam.quaternion);});
+lines.forEach((L,i)=>{const k=(now*.0004+i*.31)%1;L.dot.position.copy(L.c.getPointAt(k));});
+rn.render(sc,cam);
+fpsN++;if(now-fpsT>=1000){fpsA.push(fpsN*1000/(now-fpsT));if(fpsA.length>6)fpsA.shift();window.__fps5=Math.round(fpsA.reduce((a,b)=>a+b,0)/fpsA.length);fpsT=now;fpsN=0;}
+requestAnimationFrame(tick);})();
+addEventListener("resize",()=>{const w=el.clientWidth,h=el.clientHeight;cam.aspect=w/h;cam.updateProjectionMatrix();rn.setSize(w,h,false);});
+window.__stars=sN;window.__spots=HPTS.length;window.__lines=lines.length;
+}catch(e){window.__err.push(String(e.message||e));dgl.classList.add("show");}
+</script>
+</body>
+</html>
