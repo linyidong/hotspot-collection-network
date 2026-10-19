@@ -1,13 +1,14 @@
 # -*- coding: utf-8 -*-
 """
-T0 加工质量基准题脚本：粗筛 -> 深加工 -> 6 条校验 -> 报告。
+T0 加工质量基准题脚本：粗筛 -> 深加工 -> 8 条校验 -> 报告（v0.3 线索卡）。
 
 职责：
   1. 读取 tools/baseline/samples.jsonl（20 条真实热点样本，不改动样本文件）。
-  2. 逐条调用 prompts/coarse.md 做粗筛（deepseek-flash）。
-  3. 对经济相关条目调用 prompts/deep.md 做深加工（deepseek-v4-pro）。
-  4. 用 validate() 严格执行架构文档 §3.3 的 6 条反废话校验。
-  5. 输出 tools/baseline/report.md（含每条四件套、状态、拒绝原因、tokens、成本 + 汇总）。
+  2. 逐条调用 prompts/coarse.md 做粗筛（deepseek-flash，只判经济性 + 抽国家/品类）。
+  3. 对经济相关条目调用 prompts/deep.md 做深加工（deepseek-v4-pro，输出线索卡）。
+  4. 用 validate() 严格执行 PRD F-006 的 8 条校验。
+  5. 输出 tools/baseline/report.md（含每条线索卡摘要、阶段、A/B/C 分级位、状态、
+     拒绝原因、tokens、成本 + 汇总）。
 
 关键输入输出：
   输入：samples.jsonl、prompts/coarse.md、prompts/deep.md
@@ -41,20 +42,8 @@ PRICE_FLASH_OUTPUT = 4.0     # deepseek-flash 输出
 PRICE_PRO_INPUT = 4.5        # deepseek-v4-pro 输入
 PRICE_PRO_OUTPUT = 13.5      # deepseek-v4-pro 输出
 
-# 6 类机会类型（任务书给定字符串，prompts 中同样使用）
-OPPORTUNITY_TYPES = [
-    "跨境贸易差价",
-    "政策补贴红利",
-    "平台规则套利",
-    "新技术落地早期",
-    "消费趋势",
-    "供应链缺货",
-]
-
-# 校验词表（architecture.md §3.3 + playbook v0.1 的 r7/r8/r9）
+# 校验词表（PRD F-006 8 条校验 + playbook v0.3）
 OPPORTUNITY_STAGES = ["S1", "S2", "S3", "S4"]
-BANNED_ACTION_WORDS = ["关注", "留意", "研究", "重视", "了解", "把握"]
-EMPTY_VERIFIABLE_PHRASES = ["相关数据", "公开数据"]
 FACT_BANNED_PREFIXES = ["据悉", "业内人士称", "有消息称", "据称"]
 QUERY_ONLY_WORDS = ["查", "查阅", "下载", "调取", "阅读", "检索", "搜索", "浏览"]
 TRADE_ACTION_WORDS = ["联系", "报价", "询盘", "发信", "开发信", "打电话", "注册", "寄样", "下单", "签约", "拜访"]
@@ -97,120 +86,105 @@ def load_samples(path: Path) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
-# 校验（6 条反废话闸，对应 architecture.md §3.3）
+# 校验（PRD F-006 的 8 条，v0.3）
 # ---------------------------------------------------------------------------
 def validate(res: dict) -> tuple[bool, list[str]]:
     """
-    严格实现 9 条校验（v0.2）。返回 (是否通过, 原因列表)。
-    no_playbook 按规则认输；r0 输出非 JSON；r1 字段齐全；r2 禁止自创机会类型；
-    r3 动词+禁用词；r4 目标对象；r5 可验证数据非空话；r6 fact 不以传闻词开头；
-    r7 playbook_stage 必填且 ∈ S1–S4；r8 money_path 三要素齐全非空话；r9 动作不得只是查资料。
+    严格实现 8 条校验（v0.3，对应 PRD F-006）。
+    ①字段齐全(r1)；②stage∈S1–S4(r2)；③anchor 国家或品类至少一非空(r3)；
+    ④verify_plan 恰好 3 条且每条含具体查询对象(r4)；⑤money_hypothesis.form 非空(r5)；
+    ⑥next_action 不得只是查资料(r6)；⑦fact 不得以传闻词开头(r7)；
+    ⑧opportunity_type=none 判 no_playbook(r8，认输不算失败)。
+    返回 (是否通过, 原因列表)。任一不满足 → 判 rejected。
     """
     reasons: list[str] = []
     if not isinstance(res, dict):
         return False, ["r0_深加工输出不是 JSON 对象"]
 
-    # 按规则认输：opportunity_type=none（不再检查其余字段）
+    # r8 按规则认输：opportunity_type=none（不再检查其余字段）
     if res.get("opportunity_type") == "none":
         why = str(res.get("reason", "") or "").strip() or "未给原因"
         return False, [f"no_playbook:按规则认输（{why}）"]
 
-    # r1 字段齐全（六件套字段）
+    # r1 字段齐全（线索卡字段）
     missing = []
-    for key in ("fact", "playbook_stage", "who_lacks_what", "money_path",
-                "next_action", "verify_cost", "verifiable_data"):
+    for key in ("fact", "stage", "anchor", "signal", "verify_plan",
+                "buyer_hypothesis", "money_hypothesis", "next_action",
+                "verify_cost", "verifiable_data", "confidence"):
         val = res.get(key)
-        if key == "verifiable_data":
+        if key in ("verify_plan", "verifiable_data"):
             if not isinstance(val, list) or not val:
                 missing.append(key)
-        elif key in ("who_lacks_what", "money_path", "next_action", "verify_cost"):
+        elif key == "anchor":
+            if not isinstance(val, dict) or not val:
+                missing.append(key)
+        elif key in ("money_hypothesis", "next_action", "verify_cost"):
             if not isinstance(val, dict) or not val:
                 missing.append(key)
         else:
             if not isinstance(val, str) or not val.strip():
                 missing.append(key)
     if missing:
-        reasons.append(f"r1_字段不齐:缺少 {'、'.join(missing)}")
+        reasons.append(f"r1_字段不齐:缺少{'、'.join(missing)}")
 
-    wlw = res.get("who_lacks_what")
-    if isinstance(wlw, dict):
-        for sub in ("subject", "need", "evidence"):
-            v = wlw.get(sub)
-            if not isinstance(v, str) or not v.strip():
-                reasons.append(f"r1_字段不齐:who_lacks_what.缺少{sub}")
+    # r2 stage 必填且 ∈ S1–S4
+    stage = res.get("stage")
+    if not (isinstance(stage, str) and stage in OPPORTUNITY_STAGES):
+        reasons.append(f"r2_stage缺失或不在S1–S4:{stage!r}")
 
-    # r2 禁止自创机会类型（正常输出不应含 opportunity_type 字段）
-    if "opportunity_type" in res:
-        reasons.append(f"r2_正常输出不应含opportunity_type:{res.get('opportunity_type')!r}")
+    # r3 anchor 至少给出国家或品类之一
+    anchor = res.get("anchor")
+    if isinstance(anchor, dict):
+        country = (anchor.get("country") or "").strip()
+        category = (anchor.get("category") or "").strip()
+        if not country and not category:
+            reasons.append("r3_anchor国家与品类均为空")
+    else:
+        reasons.append("r1_字段不齐:anchor 缺失")
 
-    # r3 next_action.action 含动词且不含禁用词
+    # r4 verify_plan 恰好 3 条且每条含具体查询对象
+    vp = res.get("verify_plan")
+    if isinstance(vp, list):
+        if len(vp) != 3:
+            reasons.append(f"r4_verify_plan条数应为3:{len(vp)}")
+        else:
+            for x in vp:
+                if not (isinstance(x, str) and x.strip() and len(x.strip()) >= 4):
+                    reasons.append("r4_verify_plan每条需写清查什么+在哪查")
+                    break
+    else:
+        reasons.append("r1_字段不齐:verify_plan 缺失")
+
+    # r5 money_hypothesis 必须写出钱流形态 form（差价/佣金/服务费），status 可待验证
+    mh = res.get("money_hypothesis")
+    if isinstance(mh, dict):
+        form = mh.get("form")
+        if not (isinstance(form, str) and form.strip()):
+            reasons.append("r5_money_hypothesis.form为空（差价/佣金/服务费三选一）")
+    else:
+        reasons.append("r1_字段不齐:money_hypothesis 缺失")
+
+    # r6 next_action 不得只是查资料（除非 target/how 里有交易动作词）
     na = res.get("next_action")
     if isinstance(na, dict):
-        action = na.get("action")
-        if not isinstance(action, str) or not action.strip():
+        action = (na.get("action") or "").strip()
+        if not action:
             reasons.append("r1_字段不齐:next_action.action 为空")
         else:
-            a = action.strip()
-            if len(a) < 2:
-                reasons.append("r3_下一步缺少有效动词(动作过短)")
-            if any(w in a for w in BANNED_ACTION_WORDS):
-                reasons.append(f"r3_下一步含禁用词:{a}")
-    else:
-        reasons.append("r1_字段不齐:next_action 缺失")
-
-    # r4 next_action 必须包含目标对象
-    if isinstance(na, dict):
-        target = na.get("target")
-        if not (isinstance(target, str) and len(target.strip()) >= 2):
-            reasons.append("r4_缺少目标对象(target为空或过短)")
-        how = na.get("how")
-        if not isinstance(how, str) or not how.strip():
-            reasons.append("r1_字段不齐:next_action.how 为空")
-
-    # r5 verifiable_data 至少 1 条且不是空话
-    vd = res.get("verifiable_data")
-    if isinstance(vd, list):
-        valid = [
-            x for x in vd
-            if isinstance(x, str) and x.strip() and len(x.strip()) >= 4
-            and not any(p in x for p in EMPTY_VERIFIABLE_PHRASES)
-        ]
-        if not valid:
-            reasons.append("r5_可验证数据为空或为'相关数据'式空话")
-    else:
-        reasons.append("r5_verifiable_data 不是数组")
-
-    # r6 fact 不得以传闻词开头
-    fact = res.get("fact")
-    if isinstance(fact, str):
-        f = fact.strip().lstrip('「“"\'‘（(')
-        if any(f.startswith(p) for p in FACT_BANNED_PREFIXES):
-            reasons.append(f"r6_fact以'{FACT_BANNED_PREFIXES[0]}'等传闻词开头")
-
-    # r7 playbook_stage 必填且 ∈ S1–S4
-    stage = res.get("playbook_stage")
-    if not (isinstance(stage, str) and stage in OPPORTUNITY_STAGES):
-        reasons.append(f"r7_playbook_stage缺失或不在S1–S4:{stage!r}")
-
-    # r8 money_path 三要素（payer/receiver/your_cut）齐全且非空话
-    mp = res.get("money_path")
-    if isinstance(mp, dict):
-        for field in ("payer", "receiver", "your_cut"):
-            v = mp.get(field)
-            if not (isinstance(v, str) and v.strip()):
-                reasons.append(f"r8_money_path.缺少{field}或为空话")
-    else:
-        reasons.append("r1_字段不齐:money_path 缺失")
-
-    # r9 action 不得只是查资料（除非 target/how 里有交易动作词）
-    if isinstance(na, dict):
-        action = (na.get("action") or "").strip()
-        if action:
             query_only = any(q in action for q in QUERY_ONLY_WORDS)
             trade_ctx = (na.get("target") or "") + (na.get("how") or "")
             has_trade = any(t in action or t in trade_ctx for t in TRADE_ACTION_WORDS)
             if query_only and not has_trade:
-                reasons.append(f"r9_下一步只是查资料(action={action})，无交易动作")
+                reasons.append(f"r6_下一步只是查资料(action={action})，无交易动作")
+    else:
+        reasons.append("r1_字段不齐:next_action 缺失")
+
+    # r7 fact 不得以传闻词开头
+    fact = res.get("fact")
+    if isinstance(fact, str):
+        f = fact.strip().lstrip('「“"\'‘（(')
+        if any(f.startswith(p) for p in FACT_BANNED_PREFIXES):
+            reasons.append(f"r7_fact以'{FACT_BANNED_PREFIXES[0]}'等传闻词开头")
 
     return (len(reasons) == 0), reasons
 
@@ -248,10 +222,10 @@ def parse_json(text: str):
 # 假客户端（--dry-run 用，不调 API）
 # ---------------------------------------------------------------------------
 class DryRunClient:
-    """内置确定性假响应（v0.2）。包含 4 条故意不合格：
-    s03 缺 playbook_stage（r7）；s07 money_path 缺 payer（r8）；
-    s11 action 只有「查询」（r9）；s15 fact 以「据悉」开头（r6）。
-    其余 16 条为通过 9 条校验的合格六件套假响应。
+    """内置确定性假响应（v0.3 线索卡）。包含 5 条故意不合格：
+    s03 缺 stage（r2）；s07 anchor 国家与品类都空（r3）；
+    s11 verify_plan 只有 2 条（r4）；s15 money_hypothesis 缺 form（r5）；
+    s17 fact 以「据悉」开头（r7）。其余 15 条为通过 8 条校验的合格线索卡假响应。
     """
 
     COARSE_TOKENS = (220, 60)    # (prompt_tokens, completion_tokens)
@@ -264,80 +238,55 @@ class DryRunClient:
         idx = self.samples.index(item)
         resp = {
             "is_economic": True,
-            "playbook_stage": OPPORTUNITY_STAGES[idx % 4],
+            "anchors": {"country": "越南", "category": "手机配件"},
             "potential": 40 + (idx * 13) % 61,
         }
         return resp, self.COARSE_TOKENS
 
+    def _valid_card(self, sample_id: str, idx: int) -> dict:
+        """一条通过 8 条校验的合格线索卡假响应。"""
+        return {
+            "fact": f"{sample_id} 的确定性假响应：某国某品类进口额连续增长，终端价差约3倍。",
+            "stage": OPPORTUNITY_STAGES[idx % 4],
+            "anchor": {"country": "越南", "category": "手机配件", "hs_hint": ""},
+            "signal": "某国该品类进口额连续增长，平台类目爆发",
+            "verify_plan": [
+                "查该品类HS编码近12个月进口额，用UN Comtrade",
+                "查该品类电商平台类目销量榜单",
+                "查1688出厂价并对比当地零售价",
+            ],
+            "buyer_hypothesis": "某国该品类中小采购商",
+            "money_hypothesis": {
+                "form": "差价", "payer": "某国采购商", "your_cut": "出厂价与零售价差价", "status": "待验证",
+            },
+            "next_action": {
+                "action": "发询盘", "target": "某国3家采购商", "how": "注册卖家账号并发开发信报价",
+            },
+            "verify_cost": {"money": "50元", "time": "2小时"},
+            "verifiable_data": ["该品类HS编码进口额", "电商平台类目销量榜"],
+            "confidence": "low" if idx % 3 == 0 else "medium",
+        }
+
     def deep(self, item: dict, coarse_res: dict) -> tuple[dict | None, str, tuple[int, int]]:
         idx = self.samples.index(item)
         sample_id = item.get("id", "")
-        if sample_id == "s03":  # r7：缺 playbook_stage
-            resp = {
-                "fact": "某国某品类进口额连续增长，平台类目爆发。",
-                "who_lacks_what": {"subject": "该国采购商", "need": "差异化货源", "evidence": "进口增速快于本地供给"},
-                "money_path": {"payer": "该国采购商", "receiver": "你", "your_cut": "差价"},
-                "next_action": {"action": "发询盘", "target": "该国3家采购商", "how": "注册卖家账号并发开发信"},
-                "verify_cost": {"money": "50元", "time": "2小时"},
-                "verifiable_data": ["该品类HS编码进口额"],
-                "confidence": "medium",
-            }
-        elif sample_id == "s07":  # r8：money_path 缺 payer
-            resp = {
-                "fact": "关税调整使得某品类单票成本结构变化。",
-                "playbook_stage": "S3",
-                "who_lacks_what": {"subject": "出口商", "need": "新的成本测算", "evidence": "关税上调"},
-                "money_path": {"receiver": "你", "your_cut": "服务费"},
-                "next_action": {"action": "打电话", "target": "货代公司", "how": "询最新运费并重算单票成本"},
-                "verify_cost": {"money": "0元", "time": "30分钟"},
-                "verifiable_data": ["最新关税税率表"],
-                "confidence": "medium",
-            }
-        elif sample_id == "s11":  # r9：action 只有「查询」，无交易动作
-            resp = {
-                "fact": "某国出现抢购潮，供应链紧张。",
-                "playbook_stage": "S4",
-                "who_lacks_what": {"subject": "该国买家", "need": "稳定货源", "evidence": "缺货抢购"},
-                "money_path": {"payer": "该国采购商", "receiver": "你", "your_cut": "差价"},
-                "next_action": {"action": "查询", "target": "某行业数据库", "how": "下载年度报告"},
-                "verify_cost": {"money": "20元", "time": "1小时"},
-                "verifiable_data": ["该国该品类供需报告"],
-                "confidence": "low",
-            }
-        elif sample_id == "s15":  # r6：fact 以「据悉」开头
-            resp = {
-                "fact": "据悉，某国发布新的进口配额政策。",
-                "playbook_stage": "S3",
-                "who_lacks_what": {"subject": "进口商", "need": "配额政策解读", "evidence": "新配额发布"},
-                "money_path": {"payer": "进口商", "receiver": "你", "your_cut": "咨询费"},
-                "next_action": {"action": "联系", "target": "该国报关行", "how": "要配额申请细则并报价"},
-                "verify_cost": {"money": "0元", "time": "30分钟"},
-                "verifiable_data": ["配额政策原文"],
-                "confidence": "high",
-            }
-        else:  # 合格六件套假响应
-            resp = {
-                "fact": f"{sample_id} 的确定性假响应：某国某品类进口额连续增长，终端价差约3倍。",
-                "playbook_stage": OPPORTUNITY_STAGES[idx % 4],
-                "who_lacks_what": {
-                    "subject": "示例需求方（该品类采购商）",
-                    "need": "示例缺口（差异化货源）",
-                    "evidence": "示例依据（供需信号）",
-                },
-                "money_path": {
-                    "payer": "海外采购商",
-                    "receiver": "你（成交后收款）",
-                    "your_cut": "差价",
-                },
-                "next_action": {
-                    "action": "发询盘",
-                    "target": "示例海外采购商",
-                    "how": "注册卖家账号并发送开发信报价",
-                },
-                "verify_cost": {"money": "50元", "time": "2小时"},
-                "verifiable_data": ["示例可验证数据1", "示例可验证数据2"],
-                "confidence": "low" if idx % 3 == 0 else "medium",
-            }
+        if sample_id == "s03":  # r2：缺 stage（也会连带 r1）
+            resp = self._valid_card(sample_id, idx)
+            resp.pop("stage")
+        elif sample_id == "s07":  # r3：anchor 国家与品类都空
+            resp = self._valid_card(sample_id, idx)
+            resp["anchor"] = {"country": "", "category": "", "hs_hint": ""}
+        elif sample_id == "s11":  # r4：verify_plan 只有 2 条
+            resp = self._valid_card(sample_id, idx)
+            resp["verify_plan"] = resp["verify_plan"][:2]
+        elif sample_id == "s15":  # r5：money_hypothesis 缺 form
+            resp = self._valid_card(sample_id, idx)
+            resp["money_hypothesis"] = {"payer": "某国采购商", "your_cut": "差价", "status": "待验证"}
+        elif sample_id == "s17":  # r7：fact 以「据悉」开头
+            resp = self._valid_card(sample_id, idx)
+            resp["fact"] = "据悉，某国将放宽该品类进口限制，市场供给格局将变。"
+        else:  # 合格线索卡假响应
+            resp = self._valid_card(sample_id, idx)
         return resp, json.dumps(resp, ensure_ascii=False), self.DEEP_TOKENS
 
 
@@ -428,21 +377,21 @@ def cost_of(stage: str, tokens: tuple[int, int]) -> float:
 # 报告
 # ---------------------------------------------------------------------------
 def short_four(res: dict, limit: int = 80) -> str:
-    """把六件套压缩成一行，超长截断到 80 字。"""
+    """把线索卡压缩成一行，超长截断到 80 字。"""
     if not isinstance(res, dict):
         return str(res)
-    fact = (res.get("fact") or "")[:30]
-    stage = res.get("playbook_stage") or ""
-    wlw = res.get("who_lacks_what") or {}
-    mp = res.get("money_path") or {}
+    fact = (res.get("fact") or "")[:28]
+    stage = res.get("stage") or ""
+    anchor = res.get("anchor") or {}
+    country = (anchor.get("country") or "")[:8]
+    category = (anchor.get("category") or "")[:12]
+    buyer = (res.get("buyer_hypothesis") or "")[:12]
+    mh = res.get("money_hypothesis") or {}
+    form = (mh.get("form") or "")[:6]
     na = res.get("next_action") or {}
-    vd = res.get("verifiable_data") or []
-    subject = (wlw.get("subject") or "")[:15]
-    payer = (mp.get("payer") or "")[:10]
-    action = (na.get("action") or "")[:12]
-    target = (na.get("target") or "")[:15]
-    vd_str = "、".join(str(x)[:12] for x in vd[:2])
-    s = f"事实:{fact}｜阶段:{stage}｜缺:{subject}｜付:{payer}｜动作:{action}->{target}｜验证:{vd_str}"
+    action = (na.get("action") or "")[:10]
+    target = (na.get("target") or "")[:12]
+    s = f"事实:{fact}｜阶段:{stage}｜锚:{country}/{category}｜买家:{buyer}｜钱流:{form}｜动作:{action}->{target}"
     return s if len(s) <= limit else s[: limit - 3] + "…"
 
 
@@ -452,28 +401,28 @@ def write_report(rows: list[dict], summary: dict) -> None:
         "# T0 加工质量基准题报告",
         "",
         "- 生成时间：由脚本自动生成",
-        "- 版本：v0.2（提示词 v0.2 + 9 条校验）",
+        "- 版本：v0.3（提示词 v0.3 + 8 条校验，输出线索卡）",
         "- 样本数：{total}；ok：{ok}；rejected：{rejected}；skipped：{skipped}；failed：{failed}".format(**summary),
         "- 总花费：{cost_total:.4f} 元；平均每条：{cost_avg:.4f} 元".format(**summary),
         "",
         "## 逐条结果",
         "",
-        "| 样本 | 标题 | 六件套摘要 | 阶段 | 状态 | 拒绝原因 | prompt | completion | 成本(元) |",
-        "|---|---|---|---|---|---|---|---|---|",
+        "| 样本 | 标题 | 线索卡摘要 | 阶段 | A/B/C | 状态 | 拒绝原因 | prompt | completion | 成本(元) |",
+        "|---|---|---|---|---|---|---|---|---|---|",
     ]
     for r in rows:
         title = (r["title"] or "").replace("|", "\\|")[:20]
         four = (r["four"] or "").replace("|", "\\|")
         reason = (r["reason"] or "").replace("|", "\\|")
         lines.append(
-            f"| {r['id']} | {title} | {four} | {r['stage']} | {r['status']} | {reason or '-'} "
+            f"| {r['id']} | {title} | {four} | {r['stage']} | {r['grade']} | {r['status']} | {reason or '-'} "
             f"| {r['pt']} | {r['ct']} | {r['cost']:.4f} |"
         )
     lines.append("")
     lines.append("## 汇总")
     lines.append("")
     lines.append(f"- 总数：{summary['total']}")
-    lines.append(f"- ok（通过 9 条校验）：{summary['ok']}")
+    lines.append(f"- ok（通过 8 条校验）：{summary['ok']}")
     lines.append(f"- rejected（被校验拦下）：{summary['rejected']}")
     lines.append("- rejected 按原因分类计数：")
     if summary["reject_reasons"]:
@@ -488,6 +437,8 @@ def write_report(rows: list[dict], summary: dict) -> None:
     lines.append("")
     lines.append("## 人工盲评")
     lines.append("")
+    lines.append("A/B/C 分级口径：A=今天就能联系/报价、钱流清楚；B=查 1 次数据即可判断；C=只是信号，暂时无动作。")
+    lines.append("合格率只统计 A + B。")
     lines.append("人工盲评合格率：__ / 20（由人来填，脚本不猜）")
     lines.append("")
     REPORT_PATH.write_text("\n".join(lines), encoding="utf-8")
@@ -498,7 +449,7 @@ def write_report(rows: list[dict], summary: dict) -> None:
 # 主流程
 # ---------------------------------------------------------------------------
 def main() -> None:
-    parser = argparse.ArgumentParser(description="T0 加工质量基准题：粗筛->深加工->6条校验->报告")
+    parser = argparse.ArgumentParser(description="T0 加工质量基准题：粗筛->深加工->8条校验->报告")
     parser.add_argument("--dry-run", action="store_true", help="不调用 API，用内置假响应跑通全流程")
     parser.add_argument("--limit", type=int, default=None, help="只跑前 N 条（便于省钱试跑）")
     args = parser.parse_args()
@@ -546,7 +497,7 @@ def main() -> None:
                 deep_reasons = reasons
                 four = short_four(deep_res)
                 if isinstance(deep_res, dict):
-                    stage = deep_res.get("playbook_stage") or "-"
+                    stage = deep_res.get("stage") or "-"
                 if ok:
                     status = "ok"
                     n_ok += 1
@@ -579,7 +530,7 @@ def main() -> None:
 
         rows.append({
             "id": sample_id, "title": title, "four": four, "stage": stage,
-            "status": status, "reason": reason, "pt": pt, "ct": ct, "cost": cost,
+            "grade": "", "status": status, "reason": reason, "pt": pt, "ct": ct, "cost": cost,
         })
         print(f"[{i}/{total}] {sample_id} {status}  cost={cost:.4f}")
 
