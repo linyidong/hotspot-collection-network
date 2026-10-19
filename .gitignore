@@ -34,6 +34,7 @@ desktop.ini
 
 # ===== 基准题生成产物 =====
 tools/baseline/report.md
+tools/baseline/raw/
 
 # ===== Trae Gateway 产物（不属于项目内容）=====
 .gateway-job.json

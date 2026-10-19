@@ -63,7 +63,7 @@ hotspot-network/
 │   ├── pipeline/
 │   │   ├── orchestrator.py    # 一轮的编排、限额、熔断
 │   │   ├── dedup.py           # URL 归一化 + 标题相似度
-│   │   └── validate.py        # 四件套校验（反废话闸）
+│   │   └── validate.py        # 线索卡校验（反废话闸）
 │   ├── sources/
 │   │   ├── base.py            # 适配器接口
 │   │   ├── rss_bridge.py      # 走 china-finance-rss
