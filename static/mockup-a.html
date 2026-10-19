@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<!-- 模块：大屏稿 A（高密度三栏）。职责：静态布局稿，展示线索卡/地球/指标，供用户评审取舍。零依赖，双击可开，假数据。 -->
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>热点采集网络 · 大屏稿 A（高密度三栏）</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{overflow-x:hidden}
+body{background:#060a12;color:#cdd9ee;font:13px/1.5 "Microsoft YaHei","PingFang SC",Arial,sans-serif;min-width:1180px}
+.hd{height:52px;display:flex;align-items:center;gap:16px;padding:0 22px;border-bottom:1px solid rgba(120,180,255,.18);background:linear-gradient(180deg,rgba(28,58,106,.5),rgba(6,10,18,0))}
+.hd h1{font-size:17px;color:#eaf2ff;letter-spacing:2px}
+.sub{font-size:11px;color:#f5c542;border:1px solid rgba(245,197,66,.55);padding:1px 6px;border-radius:3px;white-space:nowrap}
+#stat{margin-left:auto;font-size:12px;color:#2ecc8f;white-space:nowrap}
+#stat .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#2ecc8f;margin-right:5px;animation:bl 1.4s infinite}
+@keyframes bl{50%{opacity:.25}}
+.spend{font-size:12px;color:#8fa3c4;white-space:nowrap}
+#btn{padding:7px 18px;border:0;border-radius:4px;background:linear-gradient(90deg,#17b3c9,#2e8bf5);color:#fff;font-size:13px;cursor:pointer;white-space:nowrap}
+#btn:disabled{opacity:.45;cursor:default}
+main{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.3fr) minmax(0,1fr);gap:14px;padding:14px 22px;height:calc(100vh - 52px)}
+.panel{min-width:0;background:rgba(255,255,255,.035);border:1px solid rgba(120,180,255,.14);border-radius:8px;padding:10px;display:flex;flex-direction:column;min-height:0}
+.sec-t{font-size:12px;color:#9fb4d8;margin-bottom:9px;display:flex;align-items:center;gap:6px}
+.sec-t .new{width:7px;height:7px;border-radius:50%;background:#ff5b5b;box-shadow:0 0 6px #ff5b5b}
+.cards{overflow:auto;display:flex;flex-direction:column;gap:8px;min-height:0;scrollbar-width:thin}
+.card{min-width:0;background:rgba(22,40,72,.5);border:1px solid rgba(120,180,255,.12);border-left:3px solid #2e8bf5;border-radius:5px;padding:6px 9px}
+.ch{display:flex;align-items:center;gap:6px;margin-bottom:5px}
+.st{font-size:11px;padding:0 5px;border-radius:3px;color:#06121f;white-space:nowrap}
+.s1{background:#4d9de0}.s2{background:#8a63f5}.s3{background:#f5a623}.s4{background:#2ecc8f}
+.tg{font-size:11px;color:#9fb4d8;border:1px solid rgba(159,180,216,.4);padding:0 5px;border-radius:3px;white-space:nowrap}
+.gr{font-size:11px;font-weight:700;width:16px;height:16px;line-height:16px;text-align:center;border-radius:3px;margin-left:auto;flex:none}
+.a{background:#ff5b5b;color:#fff}.b{background:#f5a623;color:#1a1205}.c{background:#5a6b85;color:#e6edf7}
+.fact{font-size:12px;color:#e6efff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:4px}
+.next{font-size:11px;color:#35d0e8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:4px}
+.cf{display:flex;justify-content:space-between;gap:8px;font-size:11px;color:#7c8aa5}
+.card.off{border-left-color:#6b7a94;opacity:.6;background:rgba(60,72,92,.35)}
+.ex{color:#ffb020}
+.mid{display:flex;flex-direction:column;gap:10px;min-height:0}
+.metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.met{background:rgba(22,40,72,.5);border:1px solid rgba(120,180,255,.12);border-radius:6px;padding:8px 10px;text-align:center}
+.met .k{font-size:11px;color:#7c8aa5}
+.met .v{font-size:15px;color:#e6efff;font-weight:700}
+.met .d{font-size:11px}
+.up{color:#ff6b6b}.dn{color:#2ecc8f}
+#globe{width:100%;flex:1;min-height:0;display:block}
+.cap{font-size:11px;color:#7c8aa5;text-align:center;flex:none}
+#dbg{position:fixed;right:10px;bottom:8px;font-size:11px;color:#4a5878}
+</style>
+</head>
+<body>
+<header class="hd">
+  <h1>热点采集网络</h1>
+  <span class="sub">示例数据 · 布局稿</span>
+  <span id="stat"><span class="dot"></span>运行中 · 已采集 128 条</span>
+  <span class="spend">今日花费 ¥0.87</span>
+  <button id="btn">一键采集</button>
+</header>
+<main>
+  <section class="panel">
+    <div class="sec-t"><span class="new"></span>最近 3 小时新增</div>
+    <div class="cards" id="newC"></div>
+  </section>
+  <section class="mid">
+    <div class="metrics">
+      <div class="met"><div class="k">金价</div><div class="v">¥612.4/g</div><div class="d up">▲ 0.8%</div></div>
+      <div class="met"><div class="k">布油</div><div class="v">$82.1</div><div class="d up">▲ 1.2%</div></div>
+      <div class="met"><div class="k">USD/CNY</div><div class="v">7.1210</div><div class="d dn">▼ 0.3%</div></div>
+    </div>
+    <canvas id="globe"></canvas>
+    <div class="cap">信号覆盖 · 6 节点在线</div>
+  </section>
+  <section class="panel">
+    <div class="sec-t">更早</div>
+    <div class="cards" id="oldC"></div>
+  </section>
+</main>
+<div id="dbg"></div>
+<script>
+// 假数据：0阶段 1行业 2等级 3一句话事实 4钱流 5来源时间 6下一步 7是否排除
+const D=[
+["S1 选品","宠物经济","A","出口宠物玩具小单询盘 3 笔，FOB 价差 15%","货款利差","14:32","先回 3 个询盘报 FOB 价"],
+["S2 供应链","宠物经济","A","本地宠物医院月耗 3 吨冻干粮，直供价差 12%","货款利差","13:05","联系采购要 1 吨试单"],
+["S4 客户开发","宠物经济","B","社区团购群主月销猫砂 800 袋，可分佣 8%","佣金抽成","12:47","约群主试发 1 箱猫砂"],
+["S1 选品","数码配件","B","东莞电子厂尾单数据线 5 万条，账期 60 天","货款利差","12:02","要样品和库存清单"],
+["S3 交易结构","母婴","C","外贸公司寻注塑模具厂，打样费垫资方案","垫资服务","11:30","报打样费垫资条件"],
+["S4 客户开发","母婴","A","小区宝妈群 200 人求辅食带货，佣金 15%","佣金抽成","昨日","备 10 份试吃发群主"],
+["S1 选品","家居","B","夜市摊主日售手机壳 120 件，找源头批发","货款利差","昨日","寄 3 款样品谈批发价"],
+["S3 交易结构","宠物经济","C","义乌宠物用品档口支持代采，服务费 3%","代采服务费","昨日","列采购清单谈费率"],
+["S2 供应链","宠物经济","C","跨境宠物食品清关需资质","已排除","昨日","",1]
+];
+const $=i=>document.getElementById(i);
+function cl(s){const c=s.slice(0,2).toLowerCase();return c==="s1"||c==="s2"||c==="s3"||c==="s4"?c:(s==="A"?"a":s==="B"?"b":"c");}
+function cd(d){return '<div class="card'+(d[7]?' off':'')+'"><div class="ch"><span class="st '+cl(d[0])+'">'+d[0]+'</span><span class="tg">'+d[1]+'</span><span class="gr '+cl(d[2])+'">'+d[2]+'</span></div><div class="fact">'+d[3]+'</div>'+(d[7]?'':'<div class="next">→ 下一步：'+d[6]+'</div>')+'<div class="cf"><span>'+(d[7]?'<span class="ex">需资质，已排除</span>':'钱流：'+d[4])+'</span><span>'+d[5]+'</span></div></div>';}
+D.slice(0,5).forEach(d=>$("newC").innerHTML+=cd(d));
+D.slice(5).forEach(d=>$("oldC").innerHTML+=cd(d));
+const btn=$("btn"),stat=$("stat");
+btn.onclick=()=>{if(btn.disabled)return;btn.disabled=true;let n=0;stat.innerHTML='<span class="dot" style="background:#f5a623"></span>采集中 …';
+const iv=setInterval(()=>{n++;stat.innerHTML='<span class="dot" style="background:#f5a623"></span>采集中 '+n+'s …';},1000);
+setTimeout(()=>{clearInterval(iv);btn.disabled=false;stat.innerHTML='<span class="dot"></span>运行中 · 新增 3 条';},3000);};
+// canvas 2D 地球：自转 + 经纬网 + 脉冲光点
+const cv=$("globe"),x=cv.getContext("2d");let W,H,R;
+function rs(){W=cv.clientWidth;H=cv.clientHeight;cv.width=W*devicePixelRatio;cv.height=H*devicePixelRatio;x.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0);R=Math.min(W,H)*.38;}
+rs();addEventListener("resize",rs);
+const P=[[40,116,"#ff5b5b"],[31,121,"#2ecc8f"],[22,113,"#f5a623"],[-6,107,"#2e8bf5"],[35,139,"#ff9f43"],[-25,135,"#8a63f5"],[12,125,"#35d0e8"],[45,130,"#ff5b5b"]];
+const s=performance.now();let rot=-110;
+function pr(lat,lon){const a=lat*Math.PI/180,b=(lon+rot)*Math.PI/180;return[Math.cos(a)*Math.sin(b),Math.sin(a),Math.cos(a)*Math.cos(b)];}
+function runs(pa){let o=[],c=[];for(const q of pa){const p=pr(q[0],q[1]);if(p[2]>0)c.push([p[0]*R,p[1]*R]);else{if(c.length)o.push(c);c=[];}}if(c.length)o.push(c);return o;}
+function wire(pa,col){x.strokeStyle=col;x.lineWidth=1;for(const r of runs(pa)){x.beginPath();r.forEach((p,i)=>i?x.lineTo(p[0],p[1]):x.moveTo(p[0],p[1]));x.stroke();}}
+function f(now){rot=-110+(now-s)/180;x.clearRect(0,0,W,H);x.save();x.translate(W/2,H/2);x.beginPath();x.arc(0,0,R,0,7);x.clip();
+const g=x.createRadialGradient(-R*.3,-R*.3,R*.1,0,0,R);g.addColorStop(0,"#16395f");g.addColorStop(1,"#071228");x.fillStyle=g;x.fillRect(-R,-R,2*R,2*R);
+for(let lo=-180;lo<180;lo+=30){let a=[];for(let la=-90;la<=90;la+=6)a.push([la,lo]);wire(a,"rgba(100,170,255,.22)");}
+for(let la=-60;la<=60;la+=30){let a=[];for(let lo=-180;lo<=180;lo+=6)a.push([la,lo]);wire(a,"rgba(100,170,255,.32)");}
+let vis=0;
+P.forEach((p,i)=>{const q=pr(p[0],p[1]);if(q[2]<=0)return;vis++;const px=q[0]*R,py=q[1]*R,t=((now-s)/800+i*.17)%1;
+x.strokeStyle=p[2];x.globalAlpha=.55*(1-t);x.lineWidth=1.4;x.beginPath();x.arc(px,py,R*(.015+.06*t),0,7);x.stroke();x.globalAlpha=1;
+x.fillStyle=p[2];x.beginPath();x.arc(px,py,R*.017,0,7);x.fill();});
+$("dbg").textContent="光点 "+P.length+" 个，当前可见 "+vis+" 个";
+x.beginPath();x.arc(0,0,R,0,7);x.strokeStyle="rgba(120,180,255,.45)";x.lineWidth=1.5;x.stroke();
+x.restore();requestAnimationFrame(f);}
+requestAnimationFrame(f);
+</script>
+</body>
+</html>
