@@ -81,6 +81,31 @@
     g.fillStyle = grad; g.fillRect(0, 0, 128, 128);
     ringTex = new THREE.CanvasTexture(c);
   }
+  // 四芒星贴图（光点炫光）
+  var flareTex = null;
+  function buildFlareTex() {
+    var c = document.createElement("canvas"); c.width = c.height = 128;
+    var g = c.getContext("2d");
+    g.clearRect(0, 0, 128, 128);
+    var core = g.createRadialGradient(64, 64, 0, 64, 64, 16);
+    core.addColorStop(0, "rgba(255,255,255,1)");
+    core.addColorStop(1, "rgba(255,255,255,0)");
+    g.fillStyle = core; g.fillRect(0, 0, 128, 128);
+    function ray(w, h) {
+      var grd = g.createLinearGradient(64 - w / 2, 64, 64 + w / 2, 64);
+      grd.addColorStop(0, "rgba(255,255,255,0)");
+      grd.addColorStop(0.5, "rgba(255,255,255,0.95)");
+      grd.addColorStop(1, "rgba(255,255,255,0)");
+      g.fillStyle = grd;
+      g.save(); g.translate(64, 64);
+      g.fillRect(-h / 2, -w / 2, h, w);
+      g.rotate(Math.PI / 2);
+      g.fillRect(-h / 2, -w / 2, h, w);
+      g.restore();
+    }
+    ray(3, 120);
+    flareTex = new THREE.CanvasTexture(c);
+  }
   var glowCache = {};
   function glowFor(hex) {
     var key = "#" + new THREE.Color(hex).getHexString();
@@ -118,7 +143,7 @@
     globe.rotation.y = -Math.PI / 2;
     scene.add(globe);
     var tl = new THREE.TextureLoader(); tl.crossOrigin = undefined;
-    var baseTex = tl.load("./static/vendor/textures/earth_atmos_2048.jpg");
+    var baseTex = tl.load("./static/vendor/textures/earth_day_5400.jpg");
     var lightTex = tl.load("./static/vendor/textures/earth_lights_2048.png");
     baseTex.anisotropy = 2; lightTex.anisotropy = 2;
 
@@ -155,7 +180,7 @@
     // ---- L1 地球：法线光照 + 海洋高光 + 晨昏暖光 + 夜灯（比纯漫反射真实得多）----
     var normalTex = tl.load("./static/vendor/textures/earth_normal_2048.jpg");
     var specTex = tl.load("./static/vendor/textures/earth_specular_2048.jpg");
-    var cloudTex = tl.load("./static/vendor/textures/earth_clouds_1024.png");
+    var cloudTex = tl.load("./static/vendor/textures/earth_clouds_2048.png");
     var baseMat = new THREE.ShaderMaterial({
       uniforms: {
         uSun: { value: sunDir.clone() },
@@ -292,6 +317,7 @@
 
     buildGlowTex();
     buildRingTex();
+    buildFlareTex();
 
     // ---- 光点标签（悬停显示「国家 · 阶段 · 潜力」）----
     var label = document.createElement("div");
@@ -417,6 +443,11 @@
       });
 
       // 云层缓慢漂移 + 大气呼吸（±8%）
+      // 扫描带旋转 + 星芒呼吸旋转
+      if (window.__sweep) window.__sweep.rotation.y += 0.012;
+      hot.forEach(function (h) {
+        if (h.flare) h.flare.material.rotation = (now * 0.00035 + h.ph) % 6.283;
+      });
       // 背景长途光点：慢速沿线移动（长距离扫过球面）
       for (var ab = 0; ab < ambArcs.length; ab++) {
         var A2 = ambArcs[ab];
@@ -573,8 +604,13 @@
       var ring = new THREE.Mesh(new THREE.RingGeometry(baseS * 1.05, baseS * 1.22, 44),
         new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.55, side: THREE.DoubleSide, blending: THREE.AdditiveBlending, depthWrite: false }));
       ring.renderOrder = 4;
-      entry.spr = halo; entry.core = core; entry.ring = ring; entry.col = col;
-      g.add(halo, core, ring); globe.add(g);
+      var flare = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: flareTex, color: col, transparent: true, opacity: 0.42,
+        blending: THREE.AdditiveBlending, depthWrite: false }));
+      flare.scale.setScalar(baseS * 4.0);
+      flare.renderOrder = 5;
+      entry.spr = halo; entry.core = core; entry.ring = ring; entry.flare = flare; entry.col = col;
+      g.add(halo, core, ring, flare); globe.add(g);
       hot.push(entry);
     });
 
@@ -679,6 +715,51 @@
         adot.userData.glow = aglow;
         ambArcs.push({ c: cv, dot: adot, ph: idx * 0.17, col: colA });
       });
+      // 背景全球节点：铺满其他区域（装饰层，dim 且更小）
+      var NODES = [
+        [64.1, -21.9], [48.9, 2.4], [52.5, 13.4], [41.9, 12.5], [37.98, 23.7],
+        [30.0, 31.2], [6.5, 3.4], [-1.3, 36.8], [-26.2, 28.0], [-33.9, 18.4],
+        [25.2, 55.3], [19.1, 72.9], [28.6, 77.2], [13.8, 100.5], [1.35, 103.8],
+        [-6.2, 106.8], [22.3, 114.2], [35.7, 139.7], [37.6, 127.0], [43.1, 131.9],
+        [-33.9, 151.2], [-36.8, 174.8], [40.7, -74.0], [34.1, -118.2], [41.9, -87.6],
+        [19.4, -99.1], [-23.5, -46.6], [-34.6, -58.4], [51.5, -0.13], [48.9, 2.35],
+        [55.8, 37.6], [59.9, 30.3], [60.2, 24.9], [59.3, 18.1], [47.5, 19.0]
+      ];
+      NODES.forEach(function (nz, nidx) {
+        var pos = latLon(nz[0], nz[1], 1.015);
+        var sp = new THREE.Sprite(new THREE.SpriteMaterial({
+          map: glowFor(0x66d0ff), color: 0xffffff, transparent: true,
+          opacity: 0.42, blending: THREE.AdditiveBlending, depthWrite: false }));
+        var sz = 0.020 + (nidx % 5) * 0.004;
+        sp.scale.setScalar(sz); sp.position.copy(pos); sp.renderOrder = 4;
+        globe.add(sp);
+        var fl = new THREE.Sprite(new THREE.SpriteMaterial({
+          map: flareTex, color: 0x66d0ff, transparent: true, opacity: 0.30,
+          blending: THREE.AdditiveBlending, depthWrite: false }));
+        fl.scale.setScalar(sz * 5.0); fl.position.copy(pos); fl.renderOrder = 4;
+        globe.add(fl);
+      });
+      window.__nodes = NODES.length;
+
+      // 扫描光带：赤道平面上一段旋转的弧
+      var swGrp = new THREE.Group();
+      var swPts = [];
+      for (var sai = 0; sai <= 64; sai++) {
+        var aa = -0.55 + sai / 64 * 1.1;
+        swPts.push(new THREE.Vector3(Math.sin(aa) * 1.28, 0, Math.cos(aa) * 1.28));
+      }
+      var swGeo = new THREE.BufferGeometry().setFromPoints(swPts);
+      var swLine = new THREE.Line(swGeo, new THREE.LineBasicMaterial({
+        color: 0x35d0e8, transparent: true, opacity: 0.55,
+        blending: THREE.AdditiveBlending, depthWrite: false }));
+      var swLine2 = new THREE.Line(swGeo.clone(), new THREE.LineBasicMaterial({
+        color: 0x7fe6f5, transparent: true, opacity: 0.30,
+        blending: THREE.AdditiveBlending, depthWrite: false }));
+      swLine2.scale.setScalar(0.97);
+      swGrp.add(swLine, swLine2);
+      globe.add(swGrp);
+      window.__sweep = swGrp;
+
       window.__ambientDone = true;
       window.__ambient = ROUTES.length;
     }
