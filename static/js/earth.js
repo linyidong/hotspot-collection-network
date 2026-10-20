@@ -238,16 +238,12 @@
 
           // ---- 夜间模式：黑球 + 大陆暗填充 + 青色海岸线 + 城市灯光 ----
           if (uNightMode > 0.001) {
-            float luma = dot(dayTex, vec3(0.299, 0.587, 0.114));
-            float land = smoothstep(0.045, 0.135, luma);
-            float w = max(fwidth(land) * 1.2, 0.004);
-            float coast = smoothstep(0.5 - w, 0.5, land) - smoothstep(0.5, 0.5 + w, land);
+            // 纯黑球体：只保留城市灯光，无大陆填充、无海岸线、无蓝色边缘
             vec3 lights = texture2D(uNight, vUv).rgb;
-            vec3 nCol = vec3(0.010, 0.013, 0.020)
-                      + land * vec3(0.026, 0.036, 0.052)
-                      + lights * 2.5
-                      + vec3(0.14, 0.62, 0.92) * coast * 1.25
-                      + vec3(0.06, 0.18, 0.38) * rim * 0.9;
+            // 夜灯贴图里烘焙了暗色陆地轮廓，用亮度阈值只留真正的城市亮点
+            float lv = dot(lights, vec3(0.3333));
+            float city = smoothstep(0.16, 0.46, lv);
+            vec3 nCol = vec3(0.003, 0.003, 0.004) + lights * city * vec3(3.0, 2.1, 1.2);
             col = mix(col, nCol, uNightMode);
           }
 
@@ -492,8 +488,8 @@
       }
       // 云层漂移：小幅往复（±0.035），不跨越贴图接缝
       if (cloudMat) cloudMat.uniforms.uDrift.value = 0.035 * Math.sin(t * 0.045);
-      if (haloMat) haloMat.uniforms.uK.value = 0.20 * (1 + 0.08 * Math.sin(t * 0.9));
-      if (atmMat) atmMat.uniforms.uK.value = 0.45 * (1 + 0.05 * Math.sin(t * 1.3 + 1.7));
+      if (haloMat) haloMat.uniforms.uK.value = 0.20 * (1 + 0.08 * Math.sin(t * 0.9)) * (1 - nightMode * 0.85);
+      if (atmMat) atmMat.uniforms.uK.value = 0.45 * (1 + 0.05 * Math.sin(t * 1.3 + 1.7)) * (1 - nightMode * 0.80);
       // 点击聚焦：镜头平滑推近
       if (zoomTarget != null) {
         cam.position.z += (zoomTarget - cam.position.z) * 0.14;
