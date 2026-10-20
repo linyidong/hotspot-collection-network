@@ -11,7 +11,7 @@
   var hot = [], lines = [], ripples = [];
   var STAGE_COLOR = { S1: 0x4d9de0, S2: 0x8a63f5, S3: 0xf5a623, S4: 0x2ecc8f };
   var STAGE_NAME = { S1: "S1 选品", S2: "S2 供应链", S3: "S3 交易结构", S4: "S4 客户开发" };
-  var MAX_DOTS = 30, MAX_LINES = 12, MAX_STARS = 3000;
+  var MAX_DOTS = 30, MAX_LINES = 20, MAX_STARS = 3000;
 
   function latLon(lat, lon, r) {
     var a = lat * Math.PI / 180, b = lon * Math.PI / 180;
@@ -226,7 +226,7 @@
     var cloudMat = new THREE.ShaderMaterial({
       uniforms: {
         uSun: { value: sunDir.clone() }, uCloud: { value: cloudTex },
-        uMul: { value: 0.42 }, uDrift: { value: 0 }
+        uMul: { value: 0.60 }, uDrift: { value: 0 }
       },
       transparent: true, depthWrite: false,
       vertexShader: `
@@ -248,6 +248,13 @@
     });
     var clouds = new THREE.Mesh(new THREE.SphereGeometry(1.006, 96, 64), cloudMat);
     clouds.renderOrder = 0; globe.add(clouds);
+    // 第二层云：同贴图错位 60%，只做固定偏移（不漂移，避免接缝）拉高云量
+    var cloudMat2 = cloudMat.clone();
+    cloudMat2.uniforms.uMul.value = 0.34;
+    cloudMat2.uniforms.uSun.value = cloudMat.uniforms.uSun.value;
+    var clouds2 = new THREE.Mesh(new THREE.SphereGeometry(1.012, 96, 64), cloudMat2);
+    clouds2.rotation.y = Math.PI * 0.6; clouds2.rotation.x = 0.12;
+    clouds2.renderOrder = 0; globe.add(clouds2);
     refreshSun();
 
 
@@ -562,16 +569,25 @@
       hot.push(entry);
     });
 
-    // 飞线：潜力最高 → 其余（三次贝塞尔弧，最多 12 条，按潜力截断）
-    var ordered = arr.slice().map(function (d, i) {
+    // 飞线：两两连线（按两端潜力之和排序取前 MAX_LINES 条），三次贝塞尔弧
+    var ordered = arr.slice().map(function (d) {
       return { d: d, pot: lm[d.country] ? lm[d.country].pot : (d.pot != null ? d.pot : 0) };
     }).sort(function (a, b) { return (b.pot || 0) - (a.pot || 0); });
-    var from = ordered[0];
-    if (ordered.length >= 2) {
-      var tos = ordered.slice(1, MAX_LINES + 1);
-      tos.forEach(function (to, i) {
-        var pa = latLon(from.d.lat, from.d.lon, 1.0), pb = latLon(to.d.lat, to.d.lon, 1.0);
-        var mid = pa.clone().add(pb).multiplyScalar(0.5).normalize().multiplyScalar(1.3);
+    var pairs = [];
+    for (var ai = 0; ai < ordered.length; ai++) {
+      for (var bi = ai + 1; bi < ordered.length; bi++) {
+        pairs.push({ a: ordered[ai], b: ordered[bi],
+                     w: (ordered[ai].pot || 0) + (ordered[bi].pot || 0) });
+      }
+    }
+    pairs.sort(function (x, y) { return y.w - x.w; });
+    if (pairs.length) {
+      var tos = pairs.slice(0, MAX_LINES);
+      tos.forEach(function (pr, i) {
+        var pa = latLon(pr.a.d.lat, pr.a.d.lon, 1.0), pb = latLon(pr.b.d.lat, pr.b.d.lon, 1.0);
+        var dist = pa.distanceTo(pb);
+        var lift = 1.16 + Math.min(0.34, dist * 0.20);
+        var mid = pa.clone().add(pb).multiplyScalar(0.5).normalize().multiplyScalar(lift);
         var c = new THREE.CubicBezierCurve3(pa.clone().multiplyScalar(1.02), mid, mid, pb.clone().multiplyScalar(1.02));
         var pts = c.getPoints(48);
         var lg = new THREE.BufferGeometry().setFromPoints(pts);
@@ -597,7 +613,7 @@
       });
     }
     // 首次渲染时把线索重心转到正面（相机在 +Z）
-    if (!window.__focusDone && arr.length) {
+    if (!window.__focusDone && arr.length && Object.keys(lm).length) {
       var best = arr.slice().sort(function (a, b) {
         var pa2 = lm[a.country] ? lm[a.country].pot : 0, pb2 = lm[b.country] ? lm[b.country].pot : 0;
         return (pb2 || 0) - (pa2 || 0);
