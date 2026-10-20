@@ -62,3 +62,7 @@
 | 2026-10-20 00:30 | T3 采集层完成：8 源（华尔街见闻 3 频道直连 + 5 走本地 RSS 桥 8053）；实测华尔街 3 源各 50 条，国内 5 源按预期不可达（HTTP 502 中文原因）；桥子进程 Ctrl+C 一并关闭、被杀自动重启（restarts=1）；`/api/sources` 上线 |
 | 2026-10-20 00:40 | T2 项目骨架完成：run.py 一条命令起 uvicorn（版本/依赖/端口/建表检查 + 中文错误）；app/config.py（.env + data/config.json 合并，缺 Key 不退出）；app/db.py（WAL + 幂等 8 表）；/api/health 实测 8 表 ok；首页深色占位页 |
 | 2026-10-20 14:30 | T4+T5 完成：`--run-once` 单轮流水线（采集→去重→粗筛→深加工→12 条校验→记账）+ `--deep-limit` + `/api/leads`；实测批次#12：抓 363 / 去重 250 / 粗筛 136 / 深加工 10（ok 9 / rejected 1）/ 花费 0.5170 元；批次#11 r11 拦截 1；修复粗筛空输出根因（flash 默认思考吃掉 max_tokens）与深加工调用即记账（llm_calls 补记 deep 10 条 0.2336 元） |
+| 2026-10-20 16:40 | T13 交互增强：左抽屉加采集来源列表（国内/国际标 + 逐源直连/代理开关）；新增新浪财经7×24源（9 源，实测 9/9 成功）；线索卡标题跳原文 + 「AI解析」按钮（按需解析 9.5 秒出卡，缓存秒回）；新增底部通栏「AI 建议解析」面板（按 /api/suggestions 潜力分排序）；备忘录改为右下弹层（?panel=notes|fav 深链）；新增 `POST /api/item/{id}/analyze`、`GET /api/suggestions` |
+| 2026-10-20 17:00 | 布局：端口统一改 9000（避开 Docker 网关/自建 Supabase）；自适应尺寸（clamp + 媒体查询，1024–2560）；面板拖拽换位（localStorage `hcn_panel_order`，含重置按钮） |
+| 2026-10-20 17:20 | 修复拖动失效：`dragstart` 的 `event.target` 是 panel 本身，`closest('.pt')` 恒空导致 `preventDefault`；改为 `mousedown` 记录 `__canDrag`。CDP 实测：拖动换位、重启保持、重置清空均通过 |
+| 2026-10-20 18:00 | 面板自由调节尺寸：右下角手柄按网格实际格子换算跨度（列 1–2、行 1–3），存 `hcn_panel_size`；重置同时清顺序与尺寸。CDP 实测：向右 span 2、向下 span 3、重启保持、重置清空 |

@@ -157,6 +157,12 @@ footer b{color:#9fb4d8}
 .pt{cursor:grab;user-select:none}
 .pt:active{cursor:grabbing}
 .panel .pt::before{content:"⠿";color:#4a5878;font-size:11px;margin-right:4px}
+/* 面板自由调节尺寸（右下角手柄，悬停显示） */
+#grid .panel{position:relative}
+.rh{position:absolute;right:3px;bottom:3px;width:12px;height:12px;cursor:nwse-resize;opacity:.22;transition:opacity .15s;border-radius:2px;
+  background:linear-gradient(135deg,transparent 45%,rgba(140,180,235,.85) 45% 52%,transparent 52% 62%,rgba(140,180,235,.85) 62% 69%,transparent 69%)}
+.panel:hover .rh{opacity:1}
+.panel.resizing{opacity:.5;border:1px dashed rgba(53,208,232,.65)}
 @media (max-width:1400px){
   #grid{width:clamp(500px,52vw,760px)}
   .sug{flex:1 1 240px;min-width:200px}

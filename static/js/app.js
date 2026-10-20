@@ -615,10 +615,85 @@
     restoreOrder();
   }
   initDrag();
+  // ===== 面板自由调节尺寸（右下角手柄；按网格实际格子换算跨度，存 hcn_panel_size）=====
+  function saveSize() {
+    var map = {};
+    [].forEach.call($("grid").children, function (p) {
+      var k = panelKey(p);
+      if (k && p.__col) map[k] = [p.__col, p.__row || 1];
+    });
+    try { localStorage.setItem("hcn_panel_size", JSON.stringify(map)); } catch (e) {}
+  }
+  function restoreSize() {
+    var grid = $("grid");
+    try {
+      var map = JSON.parse(localStorage.getItem("hcn_panel_size") || "{}");
+      [].forEach.call(grid.children, function (p) {
+        var k = panelKey(p);
+        var s = map[k];
+        if (s && s.length === 2) {
+          p.__col = Math.max(1, Math.min(2, +s[0] || 1));
+          p.__row = Math.max(1, Math.min(3, +s[1] || 1));
+        } else {
+          // 通栏面板默认占 2 列，其余默认 1 列
+          p.__col = p.classList.contains("wide") ? 2 : 1;
+          p.__row = 1;
+        }
+        p.style.gridColumn = "span " + p.__col;
+        p.style.gridRow = "span " + p.__row;
+      });
+    } catch (e) {}
+  }
+  function initResize() {
+    var grid = $("grid");
+    if (!grid || grid.__rsz) return;
+    grid.__rsz = true;
+    [].forEach.call(grid.children, function (p) {
+      var rh = document.createElement("span");
+      rh.className = "rh";
+      rh.title = "拖动调整大小";
+      p.appendChild(rh);
+      rh.addEventListener("mousedown", function (e) {
+        e.preventDefault();
+        e.stopPropagation();   // 避免冒泡到面板 mousedown 记录 __canDrag，从而误触发换位拖动
+        p.__canDrag = false;   // 保险：手柄开始的拖动绝不是换位
+        var rect = p.getBoundingClientRect();
+        var cs = getComputedStyle(grid);
+        var gapX = parseFloat(cs.columnGap) || 10;
+        var gapY = parseFloat(cs.rowGap) || 10;
+        var colSpan = p.__col || 1, rowSpan = p.__row || 1;
+        // 用网格实际格子尺寸换算：面板当前宽高 ÷ 当前跨度（扣除 gap）得到单格尺寸
+        var colW = (rect.width - gapX * (colSpan - 1)) / colSpan;
+        var rowH = (rect.height - gapY * (rowSpan - 1)) / rowSpan;
+        var sx = e.clientX, sy = e.clientY;
+        p.classList.add("resizing");
+        function onMove(ev) {
+          var nCol = Math.max(1, Math.min(2, Math.round(colSpan + (ev.clientX - sx) / colW)));
+          var nRow = Math.max(1, Math.min(3, Math.round(rowSpan + (ev.clientY - sy) / rowH)));
+          if (nCol !== p.__col || nRow !== p.__row) {
+            p.__col = nCol; p.__row = nRow;
+            p.style.gridColumn = "span " + nCol;
+            p.style.gridRow = "span " + nRow;
+          }
+        }
+        function onUp() {
+          document.removeEventListener("mousemove", onMove);
+          document.removeEventListener("mouseup", onUp);
+          p.classList.remove("resizing");
+          saveSize();
+        }
+        document.addEventListener("mousemove", onMove);
+        document.addEventListener("mouseup", onUp);
+      });
+    });
+    restoreSize();
+  }
+  initResize();
   var resetBtn = $("resetLayout");
   if (resetBtn) {
     resetBtn.onclick = function () {
       try { localStorage.removeItem("hcn_panel_order"); } catch (e) {}
+      try { localStorage.removeItem("hcn_panel_size"); } catch (e) {}
       location.reload();
     };
   }
