@@ -29,6 +29,7 @@ from app.bridge import bridge
 from app.sources.registry import SOURCES
 
 FETCH_ONCE = "--fetch-once" in sys.argv
+RUN_ONCE = "--run-once" in sys.argv
 
 # data 目录可写检查（config 已加载，此处显式确认）
 _db_parent = settings.db_path.parent
@@ -42,8 +43,8 @@ except OSError as e:
     print("怎么办：检查该路径的写入权限，或修改 data/config.json 中的数据库路径。")
     sys.exit(1)
 
-# ===== 4. 端口占用检查（仅正式启动服务时；--fetch-once 不占端口）=====
-if not FETCH_ONCE:
+# ===== 4. 端口占用检查（仅正式启动服务时；--fetch-once / --run-once 不占端口）=====
+if not FETCH_ONCE and not RUN_ONCE:
     _port = settings.port
     _sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
@@ -88,27 +89,40 @@ if not bridge.start():
     sys.exit(1)
 seed_sources()
 
-if FETCH_ONCE:
-    from app.sources.collect import collect_once
+if FETCH_ONCE or RUN_ONCE:
     print("=" * 56)
-    print("热点采集网络 · 单轮采集（--fetch-once）")
+    print("热点采集网络 · " + ("单轮流水线（--run-once）" if RUN_ONCE else "单轮采集（--fetch-once）"))
     print(f"桥端口  : {bridge.port}")
     print("=" * 56, flush=True)
-    results = collect_once()
+    if FETCH_ONCE:
+        from app.sources.collect import collect_once
+        results = collect_once()
+        print("-" * 56)
+        for spec in SOURCES:
+            r = results.get(spec.id, {})
+            if r.get("skipped"):
+                print(f"{spec.name:12s} 已停用（未抓取）")
+            elif r["error"] is None:
+                print(f"{spec.name:12s} ok  {len(r['items']):3d} 条")
+            else:
+                print(f"{spec.name:12s} 失败  {r['error']}")
+        print("-" * 56)
+        n_ok = sum(1 for s in SOURCES
+                   if (results.get(s.id) or {}).get("error") is None
+                   and not (results.get(s.id) or {}).get("skipped"))
+        print(f"成功源 {n_ok}/{len(SOURCES)}。失败源的 last_error 已写入 sources 表。")
+    else:
+        from app.pipeline import run_once
+        st = run_once()
+        print("-" * 56)
+        print(f"批次      : #{st['batch_id']}（{st['status']}）")
+        print(f"抓取数    : {st['fetched']} 条（源 ok {st['sources_ok']} / 失败 {st['sources_failed']}）")
+        print(f"去重后    : {st['after_dedup']} 条（重复 {st['fetched'] - st['after_dedup']} 条）")
+        print(f"粗筛通过  : {st['coarse_ok']} 条")
+        print(f"粗筛拒绝  : {st['coarse_skipped']} 条（非经济）+ {st['coarse_failed']} 条（失败）")
+        print(f"本轮花费  : {st['cost']:.4f} 元")
+        print(f"耗时      : {st['duration_s']} 秒")
     print("-" * 56)
-    for spec in SOURCES:
-        r = results.get(spec.id, {})
-        if r.get("skipped"):
-            print(f"{spec.name:12s} 已停用（未抓取）")
-        elif r["error"] is None:
-            print(f"{spec.name:12s} ok  {len(r['items']):3d} 条")
-        else:
-            print(f"{spec.name:12s} 失败  {r['error']}")
-    print("-" * 56)
-    n_ok = sum(1 for s in SOURCES
-               if (results.get(s.id) or {}).get("error") is None
-               and not (results.get(s.id) or {}).get("skipped"))
-    print(f"成功源 {n_ok}/{len(SOURCES)}。失败源的 last_error 已写入 sources 表。")
     bridge.stop()
     sys.exit(0)
 

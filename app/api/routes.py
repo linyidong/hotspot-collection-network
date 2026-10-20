@@ -3,6 +3,7 @@
     根路径返回 static/index.html，并挂载 /static 静态目录。
     /api/health 携带 bridge.ok（RSS 桥状态，挂了自动重启）；/api/sources 返回 8 源状态。
     关键依赖：fastapi、app.config、app.db、app.bridge、app.sources.registry。"""
+import json
 import time
 
 from fastapi import Body, FastAPI
@@ -87,10 +88,80 @@ def create_app() -> FastAPI:
             },
         }
 
-    @app.get("/api/sources")
-    def sources():
-        bridge.ensure()
-        return {"sources": _load_sources()}
+    @app.get("/api/items")
+    def items(batch: str = "latest", limit: int = 20):
+        """条目列表。batch=latest 取最近批次，limit 默认 20。
+        返回 title/source/published_at/summary/potential/is_economic/anchors。"""
+        limit = max(1, min(int(limit), 200))
+        conn = db.get_conn()
+        try:
+            if batch == "latest":
+                row = conn.execute(
+                    "SELECT id FROM batches ORDER BY id DESC LIMIT 1").fetchone()
+                if row is None:
+                    return {"items": [], "batch_id": None}
+                batch_id = row["id"]
+            else:
+                try:
+                    batch_id = int(batch)
+                except ValueError:
+                    return {"ok": False, "error": "batch 参数必须是 latest 或批次数字"}
+            rows = conn.execute(
+                "SELECT i.id, i.title, i.url, i.summary, i.published_at, "
+                "i.is_duplicate, i.duplicate_of, s.name AS source, "
+                "a.payload_json, a.status AS coarse_status "
+                "FROM items i JOIN sources s ON s.id=i.source_id "
+                "LEFT JOIN analyses a ON a.item_id=i.id AND a.id=("
+                "  SELECT MAX(a2.id) FROM analyses a2 WHERE a2.item_id=i.id AND a2.stage='coarse') "
+                "WHERE i.batch_id=? ORDER BY i.id DESC LIMIT ?",
+                (batch_id, limit)).fetchall()
+            out = []
+            for r in rows:
+                payload = {}
+                if r["payload_json"]:
+                    try:
+                        payload = json.loads(r["payload_json"])
+                    except (ValueError, TypeError):
+                        payload = {}
+                out.append({
+                    "id": r["id"], "title": r["title"], "url": r["url"],
+                    "source": r["source"], "published_at": r["published_at"],
+                    "summary": r["summary"], "is_duplicate": r["is_duplicate"],
+                    "duplicate_of": r["duplicate_of"], "coarse_status": r["coarse_status"],
+                    "potential": payload.get("potential"),
+                    "is_economic": payload.get("is_economic"),
+                    "anchors": payload.get("anchors"),
+                })
+            return {"items": out, "batch_id": batch_id}
+        finally:
+            conn.close()
+
+    @app.get("/api/batches")
+    def batches():
+        """批次列表（id/started_at/finished_at/status/统计）。"""
+        conn = db.get_conn()
+        try:
+            rows = conn.execute(
+                "SELECT b.id, b.started_at, b.finished_at, b.trigger, b.status, b.stats_json, "
+                "COUNT(i.id) AS item_count "
+                "FROM batches b LEFT JOIN items i ON i.batch_id=b.id "
+                "GROUP BY b.id ORDER BY b.id DESC LIMIT 50").fetchall()
+            out = []
+            for r in rows:
+                stats = {}
+                if r["stats_json"]:
+                    try:
+                        stats = json.loads(r["stats_json"])
+                    except (ValueError, TypeError):
+                        stats = {}
+                out.append({
+                    "id": r["id"], "started_at": r["started_at"],
+                    "finished_at": r["finished_at"], "trigger": r["trigger"],
+                    "status": r["status"], "stats": stats, "item_count": r["item_count"],
+                })
+            return {"batches": out}
+        finally:
+            conn.close()
 
     @app.put("/api/sources/{source_id}")
     def update_source(source_id: str, body: dict = Body(...)):
