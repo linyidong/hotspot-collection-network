@@ -47,15 +47,13 @@ header h1{font-size:16px;color:#eaf2ff;letter-spacing:1px;white-space:nowrap}
 .sug .ti a{color:#e6efff;text-decoration:none}
 .sug .ti a:hover{color:#7fd4ff;text-decoration:underline}
 .srcrow.dim{color:#4a5878}
-/* 宽的 AI 建议面板 */
-.panel.wide{grid-column:1/-1}
 .pc.rowlist{flex-direction:row;flex-wrap:wrap;gap:6px;align-content:flex-start}
-.sug{flex:1 1 300px;min-width:260px;background:rgba(22,40,72,.45);border:1px solid rgba(120,180,255,.14);
+.sug{flex:1 1 100%;min-width:0;background:rgba(22,40,72,.45);border:1px solid rgba(120,180,255,.14);
   border-left:3px solid #f5a623;border-radius:5px;padding:6px 8px;display:flex;flex-direction:column;gap:3px}
 .sug .st{font-size:10px;color:#f5a623}
 .sug .ti{font-size:11px;color:#e6efff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .sug .ac{display:flex;align-items:center;gap:6px}
-.sug .ac .dim{font-size:10px}
+.sug .ac .dim{font-size:10px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .sug button{margin-left:auto;font-size:10px;padding:1px 8px;border-radius:3px;border:1px solid rgba(53,208,232,.5);
   background:rgba(53,208,232,.12);color:#7fe6f5;cursor:pointer}
 .sug button:hover{background:rgba(53,208,232,.25)}
@@ -165,7 +163,7 @@ footer b{color:#9fb4d8}
 .panel.resizing{opacity:.5;border:1px dashed rgba(53,208,232,.65)}
 @media (max-width:1400px){
   #grid{width:clamp(500px,52vw,760px)}
-  .sug{flex:1 1 240px;min-width:200px}
+  .sug{flex:1 1 100%;min-width:0}
 }
 @media (max-width:1200px){
   #grid{width:min(560px,54vw)}
@@ -227,7 +225,7 @@ footer b{color:#9fb4d8}
     <section class="panel"><div class="pt"><span>S3 交易结构</span><span class="cnt" id="cS3">0</span><span class="bd wait">待审</span></div><div class="pc" id="pS3"></div></section>
     <section class="panel"><div class="pt"><span>更早</span><span class="cnt" id="cOld">0</span><span class="bd wait">待审</span></div><div class="pc" id="pOld"></div></section>
     <section class="panel"><div class="pt"><span>已排除</span><span class="cnt" id="cEx">0</span><span class="bd na">已排除</span></div><div class="pc" id="pEx"></div></section>
-    <section class="panel wide"><div class="pt"><span>AI 建议解析</span><span class="cnt" id="cSug">0</span><span class="bd live">按潜力分排序</span></div><div class="pc rowlist" id="pSug"></div></section>
+    <section class="panel"><div class="pt"><span>AI 建议解析</span><span class="cnt" id="cSug">0</span><span class="bd live">按潜力分排序</span></div><div class="pc rowlist" id="pSug"></div></section>
   </section>
 </main>
 <footer>

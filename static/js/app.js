@@ -635,8 +635,7 @@
           p.__col = Math.max(1, Math.min(2, +s[0] || 1));
           p.__row = Math.max(1, Math.min(3, +s[1] || 1));
         } else {
-          // 通栏面板默认占 2 列，其余默认 1 列
-          p.__col = p.classList.contains("wide") ? 2 : 1;
+          p.__col = 1;
           p.__row = 1;
         }
         p.style.gridColumn = "span " + p.__col;
