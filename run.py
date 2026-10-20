@@ -31,6 +31,16 @@ from app.sources.registry import SOURCES
 FETCH_ONCE = "--fetch-once" in sys.argv
 RUN_ONCE = "--run-once" in sys.argv
 
+# --deep-limit N：本轮深加工上限（T5；默认取 config.DEEP_LIMIT_PER_RUN）
+DEEP_LIMIT = None
+if "--deep-limit" in sys.argv:
+    _i = sys.argv.index("--deep-limit")
+    try:
+        DEEP_LIMIT = int(sys.argv[_i + 1])
+    except (IndexError, ValueError):
+        print("错误：--deep-limit 需要一个整数参数，例如 --deep-limit 10")
+        sys.exit(1)
+
 # data 目录可写检查（config 已加载，此处显式确认）
 _db_parent = settings.db_path.parent
 try:
@@ -113,13 +123,17 @@ if FETCH_ONCE or RUN_ONCE:
         print(f"成功源 {n_ok}/{len(SOURCES)}。失败源的 last_error 已写入 sources 表。")
     else:
         from app.pipeline import run_once
-        st = run_once()
+        st = run_once(deep_limit=DEEP_LIMIT)
         print("-" * 56)
         print(f"批次      : #{st['batch_id']}（{st['status']}）")
         print(f"抓取数    : {st['fetched']} 条（源 ok {st['sources_ok']} / 失败 {st['sources_failed']}）")
         print(f"去重后    : {st['after_dedup']} 条（重复 {st['fetched'] - st['after_dedup']} 条）")
         print(f"粗筛通过  : {st['coarse_ok']} 条")
         print(f"粗筛拒绝  : {st['coarse_skipped']} 条（非经济）+ {st['coarse_failed']} 条（失败）")
+        print(f"深加工    : 候选 {st['deep_candidates']} 条 → ok {st['deep_ok']}"
+              f" / rejected {st['deep_rejected']}（其中 r11 能力闸拦截 {st['deep_r11']}）"
+              f" / failed {st['deep_failed']}")
+        print(f"候选池    : 剩余 {st['deep_skipped']} 条未加工（超出本轮 limit）")
         print(f"本轮花费  : {st['cost']:.4f} 元")
         print(f"耗时      : {st['duration_s']} 秒")
     print("-" * 56)

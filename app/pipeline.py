@@ -18,10 +18,18 @@ from .config import ROOT, settings
 from .llm import chat
 from .sources.collect import collect_once
 from .sources.registry import SOURCES
+from .validate import parse_deep_json, validate_deep_card
 
 COARSE_PROMPT = (ROOT / "prompts" / "coarse.md").read_text(encoding="utf-8")
 COARSE_MODEL = settings.COARSE_MODEL or "deepseek-flash"
 COARSE_CONCURRENCY = 6          # 并发粗筛（任务书 4–8）
+
+DEEP_PROMPT = (ROOT / "prompts" / "deep.md").read_text(encoding="utf-8")
+DEEP_MODEL = settings.DEEP_MODEL or "deepseek-v4-pro"
+DEEP_MAX_TOKENS = 1200          # 线索卡正文（关闭思考后无需给推理留空间）
+DEEP_TIMEOUT = 90.0
+DEEP_RETRIES = 2                # 失败重试次数（任务书 ≤2）
+DEEP_LIMIT_DEFAULT = 10         # 每轮深加工上限（超出进候选池）
 
 # source_id(注册表) → region 标签（落库用）
 _REGION = {
@@ -184,15 +192,54 @@ def _human_last_error(exc: Exception) -> str:
         return str(exc) or exc.__class__.__name__
 
 
+def deep_one(item, coarse_res: dict, batch_id: int) -> dict:
+    """深加工单条：调 deep 模型 → 容错解析 → 12 条校验（含 r11 能力闸）。
+    失败重试 ≤2 次（每次调用即记账）；校验拒绝不算失败，不重试。
+    返回 {'status': ok|rejected|failed, 'card':..., 'reasons': [...], 'cost': float}。"""
+    user = (
+        "# 新闻\n"
+        f"id: {item['id']}\ntitle: {item['title']}\n"
+        f"summary: {(item['summary'] or '')[:800]}\n"
+        f"published_at: {item['published_at'] or ''}\n"
+        f"source: {item['source_name']}\nurl: {item['url'] or ''}\n\n"
+        f"# 粗筛结果\n{json.dumps(coarse_res, ensure_ascii=False)}\n"
+    )
+    conn = db.get_conn()
+    last_err = ""
+    try:
+        for attempt in range(DEEP_RETRIES + 1):
+            try:
+                text = chat(DEEP_MODEL, user, batch_id, stage="deep",
+                            system_prompt=DEEP_PROMPT, max_tokens=DEEP_MAX_TOKENS,
+                            timeout=DEEP_TIMEOUT, thinking=False, conn=conn)
+                card = parse_deep_json(text)
+                if card is None:
+                    raise ValueError("深加工输出无法解析为 JSON")
+                ok, reasons = validate_deep_card(card)
+                return {"status": "ok" if ok else "rejected", "card": card,
+                        "reasons": reasons, "cost": _last_call_cost(conn, batch_id)}
+            except Exception as exc:
+                last_err = _human_last_error(exc)
+                if attempt < DEEP_RETRIES:
+                    time.sleep(1.0 + attempt)
+        return {"status": "failed", "card": None,
+                "reasons": [last_err], "cost": 0.0}
+    finally:
+        conn.close()
+
+
 # ---------------------------------------------------------------------------
 # 单轮流水线
 # ---------------------------------------------------------------------------
-def run_once() -> dict:
-    """完整一轮：建批次 → 采集 → 落库 → 去重 → 粗筛 → 记账 → 收尾。返回 stats。"""
+def run_once(deep_limit: int = None) -> dict:
+    """完整一轮：建批次 → 采集 → 落库 → 去重 → 粗筛 → 深加工 → 记账 → 收尾。
+    deep_limit：本轮深加工上限（None 用默认 10；0 表示跳过深加工）。返回 stats。"""
     t0 = time.time()
     conn = db.get_conn()
     stats = {"fetched": 0, "after_dedup": 0, "coarse_ok": 0, "coarse_skipped": 0,
-             "coarse_failed": 0, "cost": 0.0, "duration_s": 0.0,
+             "coarse_failed": 0, "deep_ok": 0, "deep_rejected": 0,
+             "deep_failed": 0, "deep_skipped": 0, "deep_candidates": 0,
+             "deep_r11": 0, "cost": 0.0, "duration_s": 0.0,
              "sources_ok": 0, "sources_failed": 0}
     try:
         # 1) 建批次
@@ -252,6 +299,43 @@ def run_once() -> dict:
                     else:
                         stats["coarse_failed"] += 1
             conn.commit()
+
+        # 5.5) 深加工（只处理粗筛 is_economic=true 的条目，限额，超出进候选池）
+        limit = DEEP_LIMIT_DEFAULT if deep_limit is None else max(0, int(deep_limit))
+        if limit > 0:
+            candidates = conn.execute(
+                "SELECT i.id, i.title, i.summary, i.published_at, i.url, "
+                "s.name AS source_name, a.payload_json "
+                "FROM items i JOIN sources s ON s.id=i.source_id "
+                "JOIN analyses a ON a.item_id=i.id AND a.stage='coarse' "
+                "WHERE i.batch_id=? AND i.is_duplicate=0 AND a.status='ok' "
+                "ORDER BY i.id LIMIT ?", (batch_id, limit)).fetchall()
+            total_ok = conn.execute(
+                "SELECT COUNT(*) c FROM analyses a JOIN items i ON i.id=a.item_id "
+                "WHERE i.batch_id=? AND a.stage='coarse' AND a.status='ok'",
+                (batch_id,)).fetchone()["c"]
+            stats["deep_candidates"] = len(candidates)
+            stats["deep_skipped"] = max(0, total_ok - len(candidates))
+            for it in candidates:
+                try:
+                    coarse_res = json.loads(it["payload_json"]) if it["payload_json"] else {}
+                except Exception:
+                    coarse_res = {}
+                res = deep_one(it, coarse_res, batch_id)
+                payload = {"card": res["card"], "reasons": res["reasons"]}
+                conn.execute(
+                    "INSERT INTO analyses(item_id, stage, model, payload_json, "
+                    "status, cost, created_at) VALUES(?,?,?,?,?,?,?)",
+                    (it["id"], "deep", DEEP_MODEL,
+                     json.dumps(payload, ensure_ascii=False), res["status"],
+                     res["cost"], _now()))
+                conn.commit()
+                key = {"ok": "deep_ok", "rejected": "deep_rejected"}.get(
+                    res["status"], "deep_failed")
+                stats[key] += 1
+                if res["status"] == "rejected" and any(
+                        str(x).startswith("r11") for x in res["reasons"]):
+                    stats["deep_r11"] += 1
 
         # 6) 收尾：花费（本批 llm_calls 求和，与摘要完全一致）+ 批次状态
         cost_row = conn.execute(

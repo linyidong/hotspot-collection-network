@@ -163,6 +163,70 @@ def create_app() -> FastAPI:
         finally:
             conn.close()
 
+    @app.get("/api/leads")
+    def leads(batch: str = "latest", limit: int = 50):
+        """线索卡列表（T5：深加工 ok 的条目）。batch=latest 取含线索卡的最新批次。
+        返回 stage/vertical/confidence/potential/事实/下一步。"""
+        limit = max(1, min(int(limit), 200))
+        conn = db.get_conn()
+        try:
+            if batch == "latest":
+                row = conn.execute(
+                    "SELECT b.id FROM batches b WHERE EXISTS ("
+                    "  SELECT 1 FROM items i JOIN analyses a ON a.item_id=i.id "
+                    "  AND a.stage='deep' AND a.status='ok' WHERE i.batch_id=b.id)"
+                    " ORDER BY b.id DESC LIMIT 1").fetchone()
+                if row is None:
+                    return {"batch_id": None, "leads": [], "count": 0}
+                batch_id = row["id"]
+            else:
+                try:
+                    batch_id = int(batch)
+                except ValueError:
+                    return {"ok": False, "error": "batch 参数必须是 latest 或批次数字"}
+            rows = conn.execute(
+                "SELECT i.id, i.title, i.url, i.published_at, s.name AS source, "
+                "a.payload_json, ca.payload_json AS coarse_json "
+                "FROM analyses a JOIN items i ON i.id=a.item_id "
+                "JOIN sources s ON s.id=i.source_id "
+                "LEFT JOIN analyses ca ON ca.item_id=i.id AND ca.id=("
+                "  SELECT MAX(x.id) FROM analyses x WHERE x.item_id=i.id AND x.stage='coarse') "
+                "WHERE a.stage='deep' AND a.status='ok' AND i.batch_id=? "
+                "ORDER BY i.id DESC LIMIT ?",
+                (batch_id, limit)).fetchall()
+            out = []
+            for r in rows:
+                card = {}
+                try:
+                    card = (json.loads(r["payload_json"] or "{}") or {}).get("card") or {}
+                except (ValueError, TypeError):
+                    card = {}
+                coarse = {}
+                try:
+                    coarse = json.loads(r["coarse_json"] or "{}") or {}
+                except (ValueError, TypeError):
+                    coarse = {}
+                anchor = card.get("anchor") or {}
+                na = card.get("next_action") or {}
+                mh = card.get("money_hypothesis") or {}
+                out.append({
+                    "id": r["id"], "title": r["title"], "url": r["url"],
+                    "source": r["source"], "published_at": r["published_at"],
+                    "fact": card.get("fact"),
+                    "stage": card.get("stage"),
+                    "vertical": anchor.get("vertical"),
+                    "country": anchor.get("country"),
+                    "category": anchor.get("category"),
+                    "confidence": card.get("confidence"),
+                    "potential": coarse.get("potential"),
+                    "next_action": na,
+                    "money_form": mh.get("form"),
+                    "feasibility": card.get("feasibility"),
+                })
+            return {"batch_id": batch_id, "leads": out, "count": len(out)}
+        finally:
+            conn.close()
+
     @app.put("/api/sources/{source_id}")
     def update_source(source_id: str, body: dict = Body(...)):
         """读写源的 enabled / proxy_mode / proxy_url。proxy_mode 必须是 direct|proxy。"""
