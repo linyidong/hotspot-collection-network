@@ -445,6 +445,7 @@
       // 云层缓慢漂移 + 大气呼吸（±8%）
       // 扫描带旋转 + 星芒呼吸旋转
       if (window.__sweep) window.__sweep.rotation.y += 0.012;
+      if (window.__sweep2) window.__sweep2.rotation.y -= 0.009;
       hot.forEach(function (h) {
         if (h.flare) h.flare.material.rotation = (now * 0.00035 + h.ph) % 6.283;
       });
@@ -667,7 +668,7 @@
       var targetY = -Math.atan2(wp.x, wp.z);
       baseRotY = targetY; globe.rotation.y = targetY;
       // 同时按纬度俯仰，让焦点落在画面中部
-      globe.rotation.x = Math.atan2(wp.y, Math.hypot(wp.x, wp.z));
+      globe.rotation.x = Math.max(-0.22, Math.min(0.22, Math.atan2(wp.y, Math.hypot(wp.x, wp.z))));
       window.__focusDone = true;
     }
     // ---- 背景长途光弧：装饰层（不代表具体线索，只做空间叙事）----
@@ -676,12 +677,18 @@
         "北京": [39.9, 116.4], "新加坡": [1.35, 103.8], "迪拜": [25.2, 55.3],
         "伦敦": [51.5, -0.13], "纽约": [40.7, -74.0], "圣保罗": [-23.5, -46.6],
         "拉各斯": [6.5, 3.4], "孟买": [19.1, 72.9], "东京": [35.7, 139.7],
-        "悉尼": [-33.9, 151.2], "约翰内斯堡": [-26.2, 28.0], "洛杉矶": [34.1, -118.2]
+        "悉尼": [-33.9, 151.2], "约翰内斯堡": [-26.2, 28.0], "洛杉矶": [34.1, -118.2], "布宜诺斯艾利斯": [-34.6, -58.4],
+        "开普敦": [-33.9, 18.4], "圣地亚哥": [-33.4, -70.7], "珀斯": [-31.9, 115.9],
+        "奥克兰": [-36.8, 174.8], "毛里求斯": [-20.2, 57.5]
       };
       var ROUTES = [
         ["北京", "伦敦"], ["北京", "纽约"], ["新加坡", "迪拜"], ["孟买", "拉各斯"],
         ["东京", "洛杉矶"], ["圣保罗", "约翰内斯堡"], ["北京", "悉尼"], ["迪拜", "圣保罗"],
-        ["伦敦", "孟买"], ["纽约", "东京"], ["深圳", "新加坡"], ["北京", "洛杉矶"], ["迪拜", "东京"]
+        ["伦敦", "孟买"], ["纽约", "东京"], ["深圳", "新加坡"], ["北京", "洛杉矶"], ["迪拜", "东京"],
+        ["布宜诺斯艾利斯", "开普敦"], ["悉尼", "圣地亚哥"],
+        ["圣保罗", "拉各斯"], ["约翰内斯堡", "珀斯"],
+        ["雅加达", "珀斯"], ["奥克兰", "圣地亚哥"],
+        ["孟买", "毛里求斯"], ["新加坡", "珀斯"]
       ];
       ROUTES.forEach(function (rt, idx) {
         var A = CITY[rt[0]], B = CITY[rt[1]];
@@ -723,7 +730,14 @@
         [-6.2, 106.8], [22.3, 114.2], [35.7, 139.7], [37.6, 127.0], [43.1, 131.9],
         [-33.9, 151.2], [-36.8, 174.8], [40.7, -74.0], [34.1, -118.2], [41.9, -87.6],
         [19.4, -99.1], [-23.5, -46.6], [-34.6, -58.4], [51.5, -0.13], [48.9, 2.35],
-        [55.8, 37.6], [59.9, 30.3], [60.2, 24.9], [59.3, 18.1], [47.5, 19.0]
+        [55.8, 37.6], [59.9, 30.3], [60.2, 24.9], [59.3, 18.1], [47.5, 19.0],
+        // —— 南半球（此前几乎空白）——
+        [-12.0, -77.0], [-16.5, -68.2], [-22.9, -43.2], [-25.3, -57.6],
+        [-34.9, -56.2], [-41.3, -72.9], [-53.2, -70.9], [-34.9, 138.6],
+        [-31.9, 115.9], [-27.5, 153.0], [-37.8, 145.0], [-36.9, 174.8],
+        [-43.5, 172.6], [-22.6, 17.1], [-29.6, 30.4], [-33.0, 27.9],
+        [-17.8, 31.0], [-4.3, 15.3], [-6.8, 39.3], [-20.2, 57.5],
+        [-0.5, 117.2], [-8.6, 125.6], [-6.2, 106.8]
       ];
       NODES.forEach(function (nz, nidx) {
         var pos = latLon(nz[0], nz[1], 1.015);
@@ -757,8 +771,22 @@
         blending: THREE.AdditiveBlending, depthWrite: false }));
       swLine2.scale.setScalar(0.97);
       swGrp.add(swLine, swLine2);
+      var swGrp2 = new THREE.Group();
+      var swPts2 = [];
+      for (var sb = 0; sb <= 64; sb++) {
+        var bb = -0.5 + sb / 64;
+        swPts2.push(new THREE.Vector3(Math.sin(bb * 3.14) * 1.34, 0, Math.cos(bb * 3.14) * 1.34));
+      }
+      var swGeo2 = new THREE.BufferGeometry().setFromPoints(swPts2);
+      var swLine3 = new THREE.Line(swGeo2, new THREE.LineBasicMaterial({
+        color: 0x8f7dff, transparent: true, opacity: 0.42,
+        blending: THREE.AdditiveBlending, depthWrite: false }));
+      swGrp2.add(swLine3);
+      swGrp2.rotation.z = 1.0;
       globe.add(swGrp);
+      globe.add(swGrp2);
       window.__sweep = swGrp;
+      window.__sweep2 = swGrp2;
 
       window.__ambientDone = true;
       window.__ambient = ROUTES.length;
