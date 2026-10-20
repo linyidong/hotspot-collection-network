@@ -19,9 +19,9 @@
 python run.py
 ```
 
-- 启动时会依次检查：Python 版本、依赖、端口（默认 8010）、数据库。
-- 成功后在浏览器打开 <http://127.0.0.1:8010>（首页为占位页）。
-- 健康检查：<http://127.0.0.1:8010/api/health>，返回 JSON（status / version / db.ok / db.tables / key_configured / uptime_seconds）。
+- 启动时会依次检查：Python 版本、依赖、端口（默认 9000）、数据库。
+- 成功后在浏览器打开 <http://127.0.0.1:9000>（首页为占位页）。
+- 健康检查：<http://127.0.0.1:9000/api/health>，返回 JSON（status / version / db.ok / db.tables / key_configured / uptime_seconds）。
 - 改端口：在 `.env` 中设置 `PORT=8001` 后重启。
 
 ## 三、常见错误
@@ -30,7 +30,7 @@ python run.py
 |---|---|---|
 | `需要 Python 3.11 或更高版本` | 版本过低 | 安装 Python 3.11+，勾选 Add Python to PATH |
 | `缺少依赖：fastapi…` | 依赖未装 | 执行 `pip install -r requirements.txt` |
-| `端口 8010 已被占用` | 端口被其他程序占用 | 改 `.env` 的 `PORT`，或关闭占用进程 |
+| `端口 9000 已被占用` | 端口被其他程序占用 | 改 `.env` 的 `PORT`，或关闭占用进程 |
 | `数据目录不可写` | 权限问题 | 检查 `data/` 目录写入权限 |
 | 页面提示「尚未配置 DeepSeek API Key」 | 没配密钥 | 按页面指引复制 `.env.example` 为 `.env` 填 Key 后重启 |
 

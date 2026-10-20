@@ -24,6 +24,8 @@ header h1{font-size:16px;color:#eaf2ff;letter-spacing:1px;white-space:nowrap}
 #btn{padding:5px 14px;border:0;border-radius:4px;background:linear-gradient(90deg,#17b3c9,#2e8bf5);color:#fff;font-size:12px;cursor:pointer;white-space:nowrap}
 #btn:disabled{opacity:.45;cursor:default}
 .spend{font-size:12px;color:#8fa3c4;white-space:nowrap}
+.nav{font-size:12px;color:#7fd4ff;text-decoration:none;padding:4px 10px;border:1px solid rgba(120,180,255,.3);border-radius:4px;white-space:nowrap}
+.nav:hover{background:rgba(120,180,255,.15)}
 #sfail{display:none;text-align:center;font-size:12px;color:#ffb020;background:rgba(245,166,35,.1);border-bottom:1px solid rgba(245,166,35,.3);padding:4px 0}
 #sfail.show{display:block}
 /* 主体 */
@@ -96,6 +98,8 @@ footer b{color:#9fb4d8}
   <span class="src" id="srcs"></span>
   <span class="spend" id="next">下一轮 —</span>
   <span class="spend" id="ver">v—</span>
+  <a class="nav" href="/static/notes.html">备忘录</a>
+  <a class="nav" href="/static/settings.html">设置</a>
   <button id="btn">一键采集</button>
 </header>
 <div id="sfail">全部数据源采集失败：请检查网络或源配置后重试</div>

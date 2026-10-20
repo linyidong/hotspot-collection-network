@@ -167,7 +167,12 @@
       });
       window.__greens = ok;
     } else {
-      var st = (BATCH_INFO && BATCH_INFO.stats) || {};
+      // 兜底：取最近一轮 done/degraded 且有统计的批（BATCH_INFO 可能是 failed 批，stats 为空）
+      var st = null;
+      BATCHES.forEach(function (b) {
+        if (!st && (b.status === "done" || b.status === "degraded") && b.stats && b.stats.sources_ok != null) st = b.stats;
+      });
+      st = st || {};
       var okn = st.sources_ok || 0, failn = st.sources_failed || 0;
       window.__greens = okn;
       for (var i = 0; i < okn; i++) html += '<i class="sg" title="源 ' + (i + 1) + ' · 最近一轮正常"></i>';

@@ -24,7 +24,7 @@ DEFAULTS = {
     "DEEPSEEK_BASE_URL": "https://api.deepseek.com",
     "COARSE_MODEL": "deepseek-flash",
     "DEEP_MODEL": "deepseek-v4-pro",
-    "PORT": "8010",
+    "PORT": "9000",
     "RSS_BRIDGE_PORT": "8053",
     "PROXY_DEFAULT_URL": "",
     "MONTHLY_BUDGET_CNY": "200",
@@ -88,7 +88,7 @@ class Settings:
     @property
     def port(self) -> int:
         try:
-            return int(self._m.get("PORT", "8000"))
+            return int(self._m.get("PORT", "9000"))
         except ValueError:
             return 8000
 
