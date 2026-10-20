@@ -76,10 +76,15 @@ def run_round(trigger: str = "自动", deep_limit=None):
 
 
 def _interval_minutes() -> int:
-    """测试用间隔（分钟）；<=0 表示按每日固定时刻。可用环境变量覆盖。"""
+    """轮次间隔（分钟）：环境变量 > 界面设置 > 默认 180。
+    返回 0 表示按每日固定时刻（08/11/14/17/20/23）。"""
     raw = os.environ.get("RUN_INTERVAL_MINUTES", "")
     if not raw:
-        raw = getattr(settings, "RUN_INTERVAL_MINUTES", 0) or 0
+        try:
+            from . import settings_store
+            raw = settings_store.get("run_interval_minutes") or 0
+        except Exception:
+            raw = 0
     try:
         return int(raw)
     except (TypeError, ValueError):

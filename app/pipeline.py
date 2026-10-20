@@ -13,7 +13,7 @@ from datetime import datetime
 from difflib import SequenceMatcher
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-from . import db
+from . import db, settings_store
 from .config import ROOT, settings
 from .llm import chat
 from .sources.collect import collect_once
@@ -134,9 +134,10 @@ def _parse_coarse_output(text: str) -> dict:
     return data
 
 
-def coarse_one(item, batch_id: int) -> str:
+def coarse_one(item, batch_id: int, model: str = None) -> str:
     """粗筛单条（含 1 次失败重试），写 analyses + llm_calls。线程内自建连接。
-    返回 status：ok / skipped / failed。"""
+    model 为空时用常量默认值（界面设置可覆盖）。返回 status：ok / skipped / failed。"""
+    model = model or COARSE_MODEL
     conn = db.get_conn()
     try:
         prompt = (
@@ -149,14 +150,14 @@ def coarse_one(item, batch_id: int) -> str:
         last_err = ""
         for attempt in range(2):  # 首次 + 重试 1 次
             try:
-                text = chat(COARSE_MODEL, prompt, batch_id, stage="coarse",
+                text = chat(model, prompt, batch_id, stage="coarse",
                             max_tokens=200, conn=conn)
                 data = _parse_coarse_output(text)
                 status = "ok" if data["is_economic"] else "skipped"
                 conn.execute(
                     "INSERT INTO analyses(item_id, stage, model, payload_json, status, cost, created_at) "
                     "VALUES(?,?,?,?,?,?,?)",
-                    (item["id"], "coarse", COARSE_MODEL,
+                    (item["id"], "coarse", model,
                      json.dumps(data, ensure_ascii=False), status,
                      _last_call_cost(conn, batch_id), _now()))
                 conn.commit()
@@ -168,7 +169,7 @@ def coarse_one(item, batch_id: int) -> str:
         conn.execute(
             "INSERT INTO analyses(item_id, stage, model, payload_json, status, cost, created_at) "
             "VALUES(?,?,?,?,?,?,?)",
-            (item["id"], "coarse", COARSE_MODEL,
+            (item["id"], "coarse", model,
              json.dumps({"error": last_err}, ensure_ascii=False), "failed", 0.0, _now()))
         conn.commit()
         return "failed"
@@ -192,8 +193,9 @@ def _human_last_error(exc: Exception) -> str:
         return str(exc) or exc.__class__.__name__
 
 
-def deep_one(item, coarse_res: dict, batch_id: int) -> dict:
+def deep_one(item, coarse_res: dict, batch_id: int, model: str = None) -> dict:
     """深加工单条：调 deep 模型 → 容错解析 → 12 条校验（含 r11 能力闸）。
+    model 为空时用常量默认值（界面设置可覆盖）。
     失败重试 ≤2 次（每次调用即记账）；校验拒绝不算失败，不重试。
     返回 {'status': ok|rejected|failed, 'card':..., 'reasons': [...], 'cost': float}。"""
     user = (
@@ -209,7 +211,7 @@ def deep_one(item, coarse_res: dict, batch_id: int) -> dict:
     try:
         for attempt in range(DEEP_RETRIES + 1):
             try:
-                text = chat(DEEP_MODEL, user, batch_id, stage="deep",
+                text = chat(model or DEEP_MODEL, user, batch_id, stage="deep",
                             system_prompt=DEEP_PROMPT, max_tokens=DEEP_MAX_TOKENS,
                             timeout=DEEP_TIMEOUT, thinking=False, conn=conn)
                 conn.commit()   # 调用即记账：立即持久化本次 deep 调用（含失败，chat 已写 cost=0 行）
@@ -238,6 +240,7 @@ def run_once(deep_limit: int = None, trigger: str = "手动") -> dict:
     deep_limit：本轮深加工上限（None 用默认 10；0 表示跳过深加工）。
     trigger：批次来源，'手动' 或 '自动'。返回 stats。"""
     t0 = time.time()
+    cfg = settings_store.load()          # 界面设置（模型/限额），.env 仍优先级更高
     conn = db.get_conn()
     stats = {"fetched": 0, "after_dedup": 0, "coarse_ok": 0, "coarse_skipped": 0,
              "coarse_failed": 0, "deep_ok": 0, "deep_rejected": 0,
@@ -290,7 +293,7 @@ def run_once(deep_limit: int = None, trigger: str = "手动") -> dict:
                 (batch_id,)).fetchall()
 
             def _run(item):
-                return coarse_one(item, batch_id)
+                return coarse_one(item, batch_id, cfg["coarse_model"])
 
             with ThreadPoolExecutor(max_workers=COARSE_CONCURRENCY) as pool:
                 for fut in as_completed([pool.submit(_run, it) for it in to_coarse]):
@@ -304,7 +307,7 @@ def run_once(deep_limit: int = None, trigger: str = "手动") -> dict:
             conn.commit()
 
         # 5.5) 深加工（只处理粗筛 is_economic=true 的条目，限额，超出进候选池）
-        limit = DEEP_LIMIT_DEFAULT if deep_limit is None else max(0, int(deep_limit))
+        limit = cfg["deep_limit"] if deep_limit is None else max(0, int(deep_limit))
         if limit > 0:
             candidates = conn.execute(
                 "SELECT i.id, i.title, i.summary, i.published_at, i.url, "
@@ -324,12 +327,12 @@ def run_once(deep_limit: int = None, trigger: str = "手动") -> dict:
                     coarse_res = json.loads(it["payload_json"]) if it["payload_json"] else {}
                 except Exception:
                     coarse_res = {}
-                res = deep_one(it, coarse_res, batch_id)
+                res = deep_one(it, coarse_res, batch_id, cfg["deep_model"])
                 payload = {"card": res["card"], "reasons": res["reasons"]}
                 conn.execute(
                     "INSERT INTO analyses(item_id, stage, model, payload_json, "
                     "status, cost, created_at) VALUES(?,?,?,?,?,?,?)",
-                    (it["id"], "deep", DEEP_MODEL,
+                    (it["id"], "deep", model or DEEP_MODEL,
                      json.dumps(payload, ensure_ascii=False), res["status"],
                      res["cost"], _now()))
                 conn.commit()

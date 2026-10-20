@@ -66,11 +66,28 @@
     HEALTH = res[0];
     SOURCES = (res[1] && res[1].sources) || null;
     BATCHES = (res[2] && res[2].batches) || [];
-    LEAD = (res[3] && res[3].leads) || [];
-    BATCH_ID = (res[3] && res[3].batch_id) || null;
     RUN = res[4];
+    // 合并最近几个含线索的批次（latest 批优先 + 最近几个 deep_ok>0 的批，标题全部来自真实接口）
+    var latestLeads = (res[3] && res[3].leads) || [];
+    var latestBid = (res[3] && res[3].batch_id) || null;
+    var okBatches = BATCHES.filter(function (b) { return b.stats && b.stats.deep_ok > 0; }).slice(0, 3);
+    var cand = [];
+    var hasLatest = false;
+    okBatches.forEach(function (b) { if (b.id === latestBid) hasLatest = true; });
+    if (!hasLatest) cand.push(latestBid);
+    okBatches.forEach(function (b) { if (cand.indexOf(b.id) < 0) cand.push(b.id); });
+    cand = cand.slice(0, 3).filter(Boolean);
+    var leadList = latestLeads.slice();
+    for (var i = 0; i < cand.length; i++) {
+      var lj = await api("/api/leads?batch=" + cand[i] + "&limit=50").catch(function () { return null; });
+      if (lj && lj.leads) leadList = leadList.concat(lj.leads);
+    }
+    var seen = {};
+    LEAD = [];
+    leadList.forEach(function (l) { if (!seen[l.id]) { seen[l.id] = 1; LEAD.push(l); } });
+    BATCH_ID = latestBid || (okBatches.length ? okBatches[0].id : null);
     BATCH_INFO = null;
-    for (var i = 0; i < BATCHES.length; i++) if (BATCHES[i].id === BATCH_ID) BATCH_INFO = BATCHES[i];
+    for (var j = 0; j < BATCHES.length; j++) if (BATCHES[j].id === BATCH_ID) BATCH_INFO = BATCHES[j];
     if (BATCH_ID) {
       var it = await api("/api/items?batch=" + BATCH_ID + "&limit=200").catch(function () { return null; });
       EXCL = ((it && it.items) || []).filter(function (x) {
@@ -119,7 +136,11 @@
     var ver = HEALTH ? HEALTH.version : "—";
     $("ver").textContent = "v" + ver;
     $("next").textContent = "下一轮 " + (RUN && RUN.next_run_at ? RUN.next_run_at : "—");
-    var cost = (BATCH_INFO && BATCH_INFO.stats && BATCH_INFO.stats.cost != null) ? BATCH_INFO.stats.cost : null;
+    var doneB = null;
+    BATCHES.forEach(function (b) {
+      if (!doneB && (b.status === "done" || b.status === "degraded") && b.stats && b.stats.cost != null) doneB = b;
+    });
+    var cost = doneB ? doneB.stats.cost : null;
     $("spend").textContent = "最新批次 ¥" + (cost == null ? "—" : cost.toFixed(4));
     var cnt = BATCH_INFO ? BATCH_INFO.item_count : 0;
     if (!collecting) $("stat").innerHTML = '<span class="dot"></span>运行中 · 已采集 ' + cnt + " 条";

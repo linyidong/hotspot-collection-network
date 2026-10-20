@@ -89,6 +89,11 @@ def create_app() -> FastAPI:
             },
         }
 
+    @app.get("/api/sources")
+    def list_sources():
+        """8 个数据源：元数据 + 开关/代理 + 健康状态 + 上次条数。"""
+        return {"sources": _load_sources()}
+
     @app.get("/api/items")
     def items(batch: str = "latest", limit: int = 20):
         """条目列表。batch=latest 取最近批次，limit 默认 20。
@@ -290,6 +295,25 @@ def create_app() -> FastAPI:
         finally:
             conn.close()
         return {"ok": True}
+
+    # ---------------- T9：业务设置 ----------------
+    @app.get("/api/settings")
+    def get_settings():
+        """读取界面可改的业务配置（模型/限额/预算/间隔）。"""
+        from .. import settings_store
+        return {"settings": settings_store.load(),
+                "defaults": settings_store.DEFAULTS}
+
+    @app.put("/api/settings")
+    def put_settings(payload: dict = Body(default={})):
+        """保存业务设置；校验失败返回 400 + 中文原因。间隔类改动需重启生效。"""
+        from .. import settings_store
+        ok, data = settings_store.save(payload or {})
+        if not ok:
+            return JSONResponse(status_code=400,
+                                content={"ok": False, "error": data})
+        return {"ok": True, "settings": data,
+                "note": "模型与限额下一轮生效；轮次间隔需重启服务后生效"}
 
     # ---------------- T8：详情 / 备忘录 / 收藏 ----------------
     def _deep_of(conn, item_id: int):

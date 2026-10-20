@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<!-- 模块：设置页。职责：改模型/限额/预算/轮次间隔，以及逐源开关与代理。
+     数据来源：GET/PUT /api/settings、GET/PUT /api/sources；零外部依赖。 -->
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>设置 · 热点采集网络</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#060a12;color:#cdd9ee;font:14px/1.6 "Microsoft YaHei","PingFang SC",Arial,sans-serif}
+header{display:flex;align-items:center;gap:12px;padding:12px 22px;border-bottom:1px solid rgba(120,180,255,.15)}
+h1{font-size:16px;color:#eaf2ff;letter-spacing:1px}
+.sub{font-size:10px;color:#f5c542;border:1px solid rgba(245,197,66,.55);padding:0 6px;border-radius:3px}
+header a{margin-left:auto;color:#7fd4ff;text-decoration:none;font-size:12px}
+main{max-width:980px;margin:0 auto;padding:18px 22px 80px}
+section{background:rgba(255,255,255,.03);border:1px solid rgba(120,180,255,.14);border-radius:8px;padding:14px 16px;margin-bottom:14px}
+h2{font-size:12px;color:#8fa3c4;font-weight:400;letter-spacing:1px;margin-bottom:12px}
+.grid{display:grid;grid-template-columns:220px 1fr;gap:10px 16px;align-items:center}
+label{font-size:13px;color:#9fb4d8}
+input,select{background:#0b1420;color:#cdd9ee;border:1px solid rgba(120,180,255,.25);border-radius:5px;padding:6px 10px;font:13px inherit;width:100%}
+input[type=number]{max-width:180px}
+small{color:#6b7a94;font-size:11px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{text-align:left;padding:6px 8px;border-bottom:1px solid rgba(120,180,255,.1)}
+th{color:#8fa3c4;font-weight:400;font-size:12px}
+button{background:#2e8bf5;color:#fff;border:0;border-radius:5px;padding:8px 22px;cursor:pointer;font-size:13px}
+button.ghost{background:rgba(120,180,255,.15);color:#cfe3ff;border:1px solid rgba(120,180,255,.3);padding:5px 12px;font-size:12px}
+.bar{position:fixed;left:0;right:0;bottom:0;background:#0a1220;border-top:1px solid rgba(120,180,255,.2);
+  padding:12px 22px;display:flex;align-items:center;gap:14px}
+#msg{font-size:13px}
+.ok{color:#2ecc8f}.bad{color:#ff8080}
+.switch{display:inline-flex;align-items:center;gap:6px;cursor:pointer}
+</style>
+</head>
+<body>
+<header>
+  <h1>热点采集网络</h1><span class="sub">设置</span>
+  <a href="/">← 回大屏</a>
+</header>
+<main>
+  <section>
+    <h2>模型与限额</h2>
+    <div class="grid">
+      <label>粗筛模型</label>
+      <div><select id="coarse_model">
+        <option value="deepseek-flash">deepseek-flash（便宜，适合全量粗筛）</option>
+        <option value="deepseek-v4-pro">deepseek-v4-pro（贵，慎用于粗筛）</option>
+      </select><small>下一轮生效</small></div>
+
+      <label>深加工模型</label>
+      <div><select id="deep_model">
+        <option value="deepseek-v4-pro">deepseek-v4-pro（质量优先）</option>
+        <option value="deepseek-flash">deepseek-flash（省钱，质量下降）</option>
+      </select><small>下一轮生效</small></div>
+
+      <label>每轮深加工上限</label>
+      <div><input id="deep_limit" type="number" min="0" max="100"><small>条；0 = 只跑粗筛</small></div>
+
+      <label>轮次间隔</label>
+      <div><input id="run_interval_minutes" type="number" min="1" max="1440"><small>分钟；<b>改完需重启服务</b></small></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>预算与保留</h2>
+    <div class="grid">
+      <label>月预算</label>
+      <div><input id="monthly_budget_cny" type="number" min="1" step="1"><small>元</small></div>
+      <label>软停比例</label>
+      <div><input id="budget_stop_ratio" type="number" min="0" max="1" step="0.01"><small>剩余低于此比例时停深加工（默认 0.10）</small></div>
+      <label>硬停比例</label>
+      <div><input id="budget_hard_ratio" type="number" min="0" max="1" step="0.01"><small>剩余低于此比例时停所有模型调用（默认 0.02）</small></div>
+      <label>条目保留天数</label>
+      <div><input id="item_retention_days" type="number" min="1" max="3650"><small>天</small></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>数据源（开关 / 代理）</h2>
+    <table>
+      <thead><tr><th style="width:34px">启用</th><th>源</th><th style="width:120px">状态</th>
+      <th style="width:90px">上次条数</th><th style="width:120px">代理模式</th><th style="width:220px">代理地址</th></tr></thead>
+      <tbody id="srcBody"><tr><td colspan="6" style="color:#6b7a94">加载中…</td></tr></tbody>
+    </table>
+    <small>代理只填本地代理软件地址（如 http://127.0.0.1:7897）；本项目不解析订阅链接。</small>
+  </section>
+</main>
+<div class="bar">
+  <button id="save">保存设置</button>
+  <span id="msg"></span>
+</div>
+<script>
+(function () {
+  var FIELDS = ["coarse_model","deep_model","deep_limit","run_interval_minutes",
+                "monthly_budget_cny","budget_stop_ratio","budget_hard_ratio","item_retention_days"];
+  var SRCS = [];
+
+  function $(id) { return document.getElementById(id); }
+  function esc(s) {
+    return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) {
+      return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c];
+    });
+  }
+  function msg(text, ok) {
+    $("msg").textContent = text;
+    $("msg").className = ok ? "ok" : "bad";
+  }
+
+  function fillForm(s) {
+    FIELDS.forEach(function (k) { if ($(k)) $(k).value = s[k]; });
+  }
+
+  function renderSources(list) {
+    SRCS = list;
+    $("srcBody").innerHTML = list.map(function (s, i) {
+      var isProxy = s.proxy_mode === "proxy";
+      return '<tr data-id="' + esc(s.id) + '">' +
+        '<td><input type="checkbox" class="en" ' + (s.enabled ? "checked" : "") + '></td>' +
+        '<td>' + esc(s.name) + '</td>' +
+        '<td>' + (s.status === "ok" ? '<span class="ok">● 正常</span>' : '<span class="bad">● 异常</span>') + '</td>' +
+        '<td>' + (s.last_count || 0) + '</td>' +
+        '<td><select class="pm"><option value="direct"' + (!isProxy ? " selected" : "") +
+        '>直连</option><option value="proxy"' + (isProxy ? " selected" : "") + '>代理</option></select></td>' +
+        '<td><input class="pu" placeholder="http://127.0.0.1:7897" value="' +
+        esc(s.proxy_url || "") + '"' + (isProxy ? "" : " disabled") + '></td></tr>';
+    }).join("");
+    Array.prototype.forEach.call($("srcBody").querySelectorAll("select.pm"), function (sel) {
+      sel.addEventListener("change", function () {
+        var inp = sel.closest("tr").querySelector("input.pu");
+        inp.disabled = sel.value !== "proxy";
+        if (sel.value === "proxy" && !inp.value) inp.value = "http://127.0.0.1:7897";
+      });
+    });
+  }
+
+  function load() {
+    fetch("/api/settings").then(function (r) { return r.json(); }).then(function (j) {
+      fillForm(j.settings || {});
+    });
+    fetch("/api/sources").then(function (r) { return r.json(); }).then(function (j) {
+      renderSources(j.sources || []);
+    });
+  }
+
+  function saveSources() {
+    var jobs = [];
+    Array.prototype.forEach.call($("srcBody").querySelectorAll("tr[data-id]"), function (tr) {
+      var id = tr.getAttribute("data-id");
+      var en = tr.querySelector("input.en").checked;
+      var pm = tr.querySelector("select.pm").value;
+      var pu = tr.querySelector("input.pu").value.trim();
+      var body = {enabled: en, proxy_mode: pm};
+      if (pm === "proxy" && pu) body.proxy_url = pu;
+      jobs.push(fetch("/api/sources/" + encodeURIComponent(id), {
+        method: "PUT", headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(body)
+      }).then(function (r) { return r.json(); }));
+    });
+    return Promise.all(jobs);
+  }
+
+  $("save").addEventListener("click", function () {
+    var payload = {};
+    FIELDS.forEach(function (k) {
+      if (!$(k)) return;
+      var v = $(k).value;
+      payload[k] = (k === "coarse_model" || k === "deep_model") ? v : Number(v);
+    });
+    msg("保存中…", true);
+    fetch("/api/settings", {
+      method: "PUT", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(payload)
+    }).then(function (r) { return r.json(); }).then(function (j) {
+      if (!j.ok) { msg("保存失败：" + j.error, false); return null; }
+      return saveSources().then(function () {
+        msg("已保存。" + (j.note || ""), true);
+        setTimeout(load, 400);
+      });
+    }).catch(function (e) { msg("保存失败：" + e.message, false); });
+  });
+
+  load();
+})();
+</script>
+</body>
+</html>
