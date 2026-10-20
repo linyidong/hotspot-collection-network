@@ -56,7 +56,7 @@ main{flex:1;min-height:0;display:flex;gap:10px;padding:10px}
 .lg i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:4px;vertical-align:-1px}
 .i1{background:#4d9de0}.i2{background:#8a63f5}.i3{background:#f5a623}.i4{background:#2ecc8f}
 /* 右侧面板网格 2×3 */
-#grid{width:min(600px,34vw);flex:none;display:grid;grid-template-columns:1fr 1fr;grid-auto-rows:1fr;gap:10px;min-height:0}
+#grid{width:min(960px,48vw);flex:none;display:grid;grid-template-columns:1fr 1fr;grid-auto-rows:1fr;gap:10px;min-height:0}
 .panel{min-width:0;background:rgba(255,255,255,.035);border:1px solid rgba(120,180,255,.14);border-radius:8px;padding:7px;display:flex;flex-direction:column;min-height:0}
 .pt{flex:none;display:flex;align-items:center;justify-content:space-between;font-size:12px;color:#9fb4d8;margin-bottom:6px}
 .cnt{font-size:10px;color:#7c8aa5;margin-left:6px;font-family:Consolas,monospace}
@@ -64,7 +64,10 @@ main{flex:1;min-height:0;display:flex;gap:10px;padding:10px}
 .bd.live{background:rgba(46,204,143,.18);color:#2ecc8f;border:1px solid rgba(46,204,143,.4)}
 .bd.wait{background:rgba(245,166,35,.15);color:#f5a623;border:1px solid rgba(245,166,35,.4)}
 .bd.na{background:rgba(107,122,148,.15);color:#7c8aa5;border:1px solid rgba(107,122,148,.4)}
-.pc{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;gap:6px}
+.pc{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;gap:6px;scrollbar-width:none;-ms-overflow-style:none}
+.pc::-webkit-scrollbar{width:0;height:0;display:none}
+.dbody{scrollbar-width:none;-ms-overflow-style:none}
+.dbody::-webkit-scrollbar{width:0;height:0;display:none}
 /* 线索卡 */
 .card{min-width:0;flex:1;background:rgba(22,40,72,.5);border:1px solid rgba(120,180,255,.12);border-left:3px solid #2e8bf5;border-radius:5px;padding:6px 8px}
 .card.s1{border-left-color:#4d9de0}.card.s2{border-left-color:#8a63f5}.card.s3{border-left-color:#f5a623}.card.s4{border-left-color:#2ecc8f}

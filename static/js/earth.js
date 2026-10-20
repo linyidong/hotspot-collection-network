@@ -21,7 +21,7 @@
     rn.setPixelRatio(Math.min(devicePixelRatio, 2)); rn.setSize(W, H, false); el.appendChild(rn.domElement);
     if (!rn.getContext()) throw new Error("nowebgl");
     webgl = true;
-    globe = new THREE.Group(); sc.add(globe);
+    globe = new THREE.Group(); globe.position.x = -0.10; sc.add(globe);
     // 星空：1600 星点，3 档亮度，shader 逐点闪烁
     var sN = 1600, sp = new Float32Array(sN * 3), pha = new Float32Array(sN), sb = new Float32Array(sN);
     for (var i = 0; i < sN; i++) {
@@ -82,6 +82,8 @@
     });
     addEventListener("pointerup", function () { drag = null; });
     addEventListener("wheel", function (e) {
+      // 只有指针在地球区域内才缩放地球；在右侧面板/抽屉上滚轮只滚动内容
+      if (!el.contains(e.target)) return;
       e.preventDefault();
       cam.position.z = Math.min(7, Math.max(2.2, cam.position.z * (1 + e.deltaY * .0012)));
       auto = performance.now();
