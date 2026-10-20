@@ -8,7 +8,7 @@
   window.__err = window.__err || [];
   var el = $("g3d"), dgl = $("dgl");
   var webgl = false, globe, cam, rn, scene;
-  var hot = [], lines = [], ripples = [];
+  var hot = [], lines = [], ripples = [], ambArcs = [];
   var STAGE_COLOR = { S1: 0x4d9de0, S2: 0x8a63f5, S3: 0xf5a623, S4: 0x2ecc8f };
   var STAGE_NAME = { S1: "S1 选品", S2: "S2 供应链", S3: "S3 交易结构", S4: "S4 客户开发" };
   var MAX_DOTS = 30, MAX_LINES = 20, MAX_STARS = 3000;
@@ -226,7 +226,7 @@
     var cloudMat = new THREE.ShaderMaterial({
       uniforms: {
         uSun: { value: sunDir.clone() }, uCloud: { value: cloudTex },
-        uMul: { value: 0.60 }, uDrift: { value: 0 }
+        uMul: { value: 0.78 }, uDrift: { value: 0 }
       },
       transparent: true, depthWrite: false,
       vertexShader: `
@@ -250,7 +250,7 @@
     clouds.renderOrder = 0; globe.add(clouds);
     // 第二层云：同贴图错位 60%，只做固定偏移（不漂移，避免接缝）拉高云量
     var cloudMat2 = cloudMat.clone();
-    cloudMat2.uniforms.uMul.value = 0.34;
+    cloudMat2.uniforms.uMul.value = 0.42;
     cloudMat2.uniforms.uSun.value = cloudMat.uniforms.uSun.value;
     var clouds2 = new THREE.Mesh(new THREE.SphereGeometry(1.012, 96, 64), cloudMat2);
     clouds2.rotation.y = Math.PI * 0.6; clouds2.rotation.x = 0.12;
@@ -337,7 +337,7 @@
           window.open("/static/detail.html?id=" + h.id, "_blank");
         }
       }
-      if (hover && !h && h !== undefined) { hover.hover = false; hover.spr.scale.setScalar(hover.base * 2.2); hover = null; hideLabel(); }
+      if (hover && !h && h !== undefined) { hover.hover = false; hover.spr.scale.setScalar(hover.base * 1.55); hover = null; hideLabel(); }
       drag = null; downPt = null;
     });
     cv.addEventListener("wheel", function (e) {
@@ -348,7 +348,7 @@
     }, { passive: false });
     cv.addEventListener("mouseleave", function () {
       pointer.x = -9999; pointer.y = -9999;
-      if (hover) { hover.hover = false; hover.spr.scale.setScalar(hover.base * 2.2); hover = null; }
+      if (hover) { hover.hover = false; hover.spr.scale.setScalar(hover.base * 1.55); hover = null; }
       hideLabel();
     });
 
@@ -417,6 +417,14 @@
       });
 
       // 云层缓慢漂移 + 大气呼吸（±8%）
+      // 背景长途光点：慢速沿线移动（长距离扫过球面）
+      for (var ab = 0; ab < ambArcs.length; ab++) {
+        var A2 = ambArcs[ab];
+        var ka = (now * 0.00016 + A2.ph) % 1;
+        var apos = A2.c.getPointAt(ka);
+        A2.dot.position.copy(apos);
+        if (A2.dot.userData.glow) A2.dot.userData.glow.position.copy(apos);
+      }
       // 云层漂移：小幅往复（±0.035），不跨越贴图接缝
       if (cloudMat) cloudMat.uniforms.uDrift.value = 0.035 * Math.sin(t * 0.045);
       if (haloMat) haloMat.uniforms.uK.value = 0.20 * (1 + 0.08 * Math.sin(t * 0.9));
@@ -440,11 +448,11 @@
       if (++hoverTick % 4 === 0 && !drag) {
         var h2 = hitTest(pointer.x, pointer.y);
         if (h2 !== hover) {
-          if (hover) { hover.hover = false; hover.spr.scale.setScalar(hover.base * 2.2); }
+          if (hover) { hover.hover = false; hover.spr.scale.setScalar(hover.base * 1.55); }
           hover = h2;
           if (hover) {
             hover.hover = true;
-            hover.spr.scale.setScalar(hover.base * 2.2 * 1.25);
+            hover.spr.scale.setScalar(hover.base * 1.55 * 1.3);
             var p = new THREE.Vector3().copy(hover.g.position).applyMatrix4(globe.matrixWorld).project(cam);
             var rr2 = cv.getBoundingClientRect();
             showLabel(hover, rr2.left + (p.x + 1) / 2 * rr2.width, rr2.top + (1 - p.y) / 2 * rr2.height);
@@ -535,7 +543,8 @@
       var g = new THREE.Group(); g.position.copy(latLon(d.lat, d.lon, 1.02));
       var col = STAGE_COLOR[d.stage] || 0x4d9de0;
       var meta = lm[d.country] || { pot: null, id: null };
-      var pot = meta.pot == null ? (d.pot != null ? d.pot : null) : meta.pot;
+      var pot = d.pot != null ? d.pot : meta.pot;
+      var lid = d.id != null ? d.id : meta.id;
       var size = 0.6 + 0.8 * ((pot == null ? 0 : Math.min(pot, 100)) / 100); // 0.6–1.4 倍
       var baseS = 0.060 * size;
       curC[d.country] = 1;
@@ -547,17 +556,17 @@
         rm.position.copy(g.position); rm.scale.setScalar(0.10); rm.renderOrder = 5;
         globe.add(rm); ripples.push({ mesh: rm, life: 0 });
       }
-      var entry = { g: g, ring: null, base: baseS, ph: (i * 0.17) % 1, country: d.country, stage: d.stage, pot: pot, id: meta.id, hover: false };
+      var entry = { g: g, ring: null, base: baseS, ph: (i * 0.17) % 1, country: d.country, stage: d.stage, pot: pot, id: lid, hover: false };
       // 外层彩色光晕（阶段色真正显色）
       var halo = new THREE.Sprite(new THREE.SpriteMaterial({
         map: glowFor(col), color: 0xffffff, transparent: true, opacity: 1.0,
         blending: THREE.AdditiveBlending, depthWrite: false
       }));
-      halo.scale.setScalar(baseS * 2.2);
+      halo.scale.setScalar(baseS * 1.55);
       halo.renderOrder = 4;
       halo.userData.h = entry;
       // 内层实心亮核（小而白，保证在亮面上也看得见）
-      var core = new THREE.Mesh(new THREE.SphereGeometry(baseS * 0.30, 12, 12),
+      var core = new THREE.Mesh(new THREE.SphereGeometry(baseS * 0.22, 12, 12),
         new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.95,
           blending: THREE.AdditiveBlending, depthWrite: false }));
       core.renderOrder = 5;
@@ -586,10 +595,10 @@
       tos.forEach(function (pr, i) {
         var pa = latLon(pr.a.d.lat, pr.a.d.lon, 1.0), pb = latLon(pr.b.d.lat, pr.b.d.lon, 1.0);
         var dist = pa.distanceTo(pb);
-        var lift = 1.16 + Math.min(0.34, dist * 0.20);
+        var lift = 1.10 + Math.min(0.20, dist * 0.14);
         var mid = pa.clone().add(pb).multiplyScalar(0.5).normalize().multiplyScalar(lift);
         var c = new THREE.CubicBezierCurve3(pa.clone().multiplyScalar(1.02), mid, mid, pb.clone().multiplyScalar(1.02));
-        var pts = c.getPoints(48);
+        var pts = c.getPoints(72);
         var lg = new THREE.BufferGeometry().setFromPoints(pts);
         var baseCol = new THREE.Color([0x7fd8ff, 0x8fb8ff, 0xc9a8ff][i % 3]);
         var cols = new Float32Array(pts.length * 3);
@@ -624,6 +633,54 @@
       // 同时按纬度俯仰，让焦点落在画面中部
       globe.rotation.x = Math.atan2(wp.y, Math.hypot(wp.x, wp.z));
       window.__focusDone = true;
+    }
+    // ---- 背景长途光弧：装饰层（不代表具体线索，只做空间叙事）----
+    if (!window.__ambientDone) {
+      var CITY = {
+        "北京": [39.9, 116.4], "新加坡": [1.35, 103.8], "迪拜": [25.2, 55.3],
+        "伦敦": [51.5, -0.13], "纽约": [40.7, -74.0], "圣保罗": [-23.5, -46.6],
+        "拉各斯": [6.5, 3.4], "孟买": [19.1, 72.9], "东京": [35.7, 139.7],
+        "悉尼": [-33.9, 151.2], "约翰内斯堡": [-26.2, 28.0], "洛杉矶": [34.1, -118.2]
+      };
+      var ROUTES = [
+        ["北京", "伦敦"], ["北京", "纽约"], ["新加坡", "迪拜"], ["孟买", "拉各斯"],
+        ["东京", "洛杉矶"], ["圣保罗", "约翰内斯堡"], ["北京", "悉尼"], ["迪拜", "圣保罗"],
+        ["伦敦", "孟买"], ["纽约", "东京"], ["深圳", "新加坡"], ["北京", "洛杉矶"], ["迪拜", "东京"]
+      ];
+      ROUTES.forEach(function (rt, idx) {
+        var A = CITY[rt[0]], B = CITY[rt[1]];
+        if (!A || !B) return;
+        var pa = latLon(A[0], A[1], 1.0), pb = latLon(B[0], B[1], 1.0);
+        var dd = pa.distanceTo(pb);
+        var liftA = 1.06 + Math.min(0.10, dd * 0.07);
+        var midA = pa.clone().add(pb).multiplyScalar(0.5).normalize().multiplyScalar(liftA);
+        var cv = new THREE.CubicBezierCurve3(pa.clone().multiplyScalar(1.01), midA, midA,
+                                             pb.clone().multiplyScalar(1.01));
+        var ptsA = cv.getPoints(80);
+        var geoA = new THREE.BufferGeometry().setFromPoints(ptsA);
+        var colA = new THREE.Color([0x2f7fd0, 0x3f6fd8, 0x4f8fe8][idx % 3]);
+        var colsA = new Float32Array(ptsA.length * 3);
+        for (var q = 0; q < colsA.length; q += 3) {
+          colsA[q] = colA.r * 0.5; colsA[q + 1] = colA.g * 0.5; colsA[q + 2] = colA.b * 0.5;
+        }
+        geoA.setAttribute("color", new THREE.BufferAttribute(colsA, 3));
+        var LA = new THREE.Line(geoA, new THREE.LineBasicMaterial({
+          vertexColors: true, transparent: true, opacity: 0.62,
+          blending: THREE.AdditiveBlending, depthWrite: false }));
+        LA.renderOrder = 2;
+        var adot = new THREE.Mesh(new THREE.SphereGeometry(0.016, 10, 10),
+          new THREE.MeshBasicMaterial({ color: colA, blending: THREE.AdditiveBlending, depthWrite: false }));
+        adot.renderOrder = 3;
+        var aglow = new THREE.Sprite(new THREE.SpriteMaterial({
+          map: glowFor(colA.getHex()), color: 0xffffff, transparent: true, opacity: 0.75,
+          blending: THREE.AdditiveBlending, depthWrite: false }));
+        aglow.scale.setScalar(0.075); aglow.renderOrder = 3;
+        globe.add(LA, adot, aglow);
+        adot.userData.glow = aglow;
+        ambArcs.push({ c: cv, dot: adot, ph: idx * 0.17, col: colA });
+      });
+      window.__ambientDone = true;
+      window.__ambient = ROUTES.length;
     }
     window.__dotCountries = curC;
     window.__spots = hot.length; window.__lines = lines.length; window.__dots = hot.length;

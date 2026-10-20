@@ -292,21 +292,29 @@
   }
 
   function buildDots() {
-    var m = {};
+    // 按「单条线索」打点（不再按国家聚合成一个点）：点更多、阶段色更杂。
+    // 同国家的点做小幅螺旋偏移，避免完全重叠。
+    var seen = {};
+    var out = [];
     LEAD.forEach(function (l) {
       var c = l.country;
       if (!c) return;
       var e = LL[c];
       if (!e) return;
-      if (!m[c]) m[c] = { lat: e[0], lon: e[1], n: 0, stages: {} };
-      m[c].n++;
-      m[c].stages[l.stage || "S1"] = (m[c].stages[l.stage || "S1"] || 0) + 1;
-    });
-    var out = [];
-    Object.keys(m).forEach(function (k) {
-      var v = m[k], st = "S1", mx = 0;
-      Object.keys(v.stages).forEach(function (s) { if (v.stages[s] > mx) { mx = v.stages[s]; st = s; } });
-      out.push({ lat: v.lat, lon: v.lon, n: v.n, stage: st, country: k });
+      if (out.length >= 30) return;
+      var k = seen[c] || 0; seen[c] = k + 1;
+      var dlat = 0, dlon = 0;
+      if (k > 0) {
+        var ang = k * 2.39996;              // 黄金角，散得均匀
+        var rad = 5.0 + k * 3.2;            // 度
+        dlat = Math.cos(ang) * rad;
+        dlon = Math.sin(ang) * rad / Math.max(0.25, Math.cos(e[0] * Math.PI / 180));
+      }
+      out.push({
+        lat: e[0] + dlat, lon: e[1] + dlon, n: 1,
+        stage: l.stage || "S1", country: c,
+        id: l.id, pot: Number(l.potential) || 0
+      });
     });
     return out;
   }
