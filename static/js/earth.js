@@ -8,7 +8,7 @@
   window.__err = window.__err || [];
   var el = $("g3d"), dgl = $("dgl");
   var webgl = false, globe, cam, rn, scene;
-  var hot = [], lines = [], ripples = [], ambArcs = [];
+  var hot = [], lines = [], ripples = [], ambArcs = [], nodeSprites = [];
   var STAGE_COLOR = { S1: 0x4d9de0, S2: 0x8a63f5, S3: 0xf5a623, S4: 0x2ecc8f };
   var STAGE_NAME = { S1: "S1 选品", S2: "S2 供应链", S3: "S3 交易结构", S4: "S4 客户开发" };
   var MAX_DOTS = 30, MAX_LINES = 20, MAX_STARS = 3000;
@@ -183,12 +183,13 @@
     var specTex = tl.load("./static/vendor/textures/earth_specular_2048.jpg");
     var cloudTex = tl.load("./static/vendor/textures/earth_clouds_2048.png");
     var baseMat = new THREE.ShaderMaterial({
+      transparent: true,
       uniforms: {
         uSun: { value: sunDir.clone() },
         uDay: { value: baseTex }, uNight: { value: lightTex },
         uNormal: { value: normalTex }, uSpec: { value: specTex },
         uDayMul: { value: 1.25 }, uNightMul: { value: 2.2 }, uAmb: { value: 0.10 },
-        uRelief: { value: 0.85 }, uNightMode: { value: 0 }
+        uRelief: { value: 0.85 }, uNightMode: { value: 0 }, uTime: { value: 0 }
       },
       vertexShader: `
         varying vec2 vUv; varying vec3 vN; varying vec3 vV; varying vec3 vP;
@@ -202,7 +203,7 @@
       fragmentShader: `
         uniform vec3 uSun;
         uniform sampler2D uDay, uNight, uNormal, uSpec;
-        uniform float uDayMul, uNightMul, uAmb, uRelief, uNightMode;
+        uniform float uDayMul, uNightMul, uAmb, uRelief, uNightMode, uTime;
         varying vec2 vUv; varying vec3 vN; varying vec3 vV; varying vec3 vP;
         void main() {
           vec3 N = normalize(vN);
@@ -237,17 +238,39 @@
           col += vec3(0.16, 0.34, 0.62) * rim * 0.55;
 
           // ---- 夜间模式：黑球 + 大陆暗填充 + 青色海岸线 + 城市灯光 ----
+          float alpha = 1.0;
           if (uNightMode > 0.001) {
-            // 纯黑球体：只保留城市灯光，无大陆填充、无海岸线、无蓝色边缘
+            // ---- 镂空地球：海洋透明，只剩悬浮的大陆板块 + 城市灯光 ----
             vec3 lights = texture2D(uNight, vUv).rgb;
-            // 夜灯贴图里烘焙了暗色陆地轮廓，用亮度阈值只留真正的城市亮点
             float lv = dot(lights, vec3(0.3333));
-            float city = smoothstep(0.16, 0.46, lv);
-            vec3 nCol = vec3(0.003, 0.003, 0.004) + lights * city * vec3(3.0, 2.1, 1.2);
+            float city = smoothstep(0.14, 0.44, lv);
+
+            float luma = dot(dayTex, vec3(0.299, 0.587, 0.114));
+            float land = smoothstep(0.050, 0.120, luma);
+
+            // 悬浮感：用固定侧上方光给大陆一点体积明暗
+            vec3 Ln = normalize(vec3(0.35, 0.55, 0.75));
+            float relief = 0.55 + 0.45 * dot(Nm, Ln);
+            vec3 landCol = vec3(0.055, 0.070, 0.090) * relief
+                         + vec3(0.02, 0.03, 0.045);
+
+            // 城市灯光：轻微呼吸 + 偶发星芒闪烁
+            float ph = (vUv.x * 431.0 + vUv.y * 197.0);
+            float tw = 0.62 + 0.38 * sin(uTime * 1.6 + ph * 6.2831);
+            float flare = pow(max(sin(uTime * 0.9 + ph * 3.1), 0.0), 22.0);
+            vec3 lightCol = lights * city * vec3(3.2, 2.3, 1.35) * tw;
+            lightCol += city * vec3(2.2, 1.8, 1.1) * flare;
+
+            // 极限边缘保留一圈轮廓，保证"球形"还在
+            float rimRing = smoothstep(0.55, 0.95, rim) * 0.55;
+
+            vec3 nCol = landCol * land + lightCol + vec3(0.05, 0.12, 0.22) * rimRing;
             col = mix(col, nCol, uNightMode);
+            alpha = mix(1.0, max(land * 0.96, rimRing + city * 0.9), uNightMode);
           }
 
-          gl_FragColor = vec4(col, 1.0);
+          if (alpha < 0.02) discard;
+          gl_FragColor = vec4(col, alpha);
         }`
     });
     try {
@@ -465,6 +488,7 @@
       });
 
       // 云层缓慢漂移 + 大气呼吸（±8%）
+      if (baseMat) baseMat.uniforms.uTime.value = t;
       // 夜间模式平滑过渡
       if (Math.abs(nightTarget - nightMode) > 0.002) {
         nightMode += (nightTarget - nightMode) * 0.06;
@@ -473,6 +497,19 @@
         if (cloudMat2) cloudMat2.uniforms.uNight.value = nightMode;
       }
       // 扫描带旋转 + 星芒呼吸旋转
+      // 夜间：装饰层压暗（让画面更"镂空"）
+      if (nightMode > 0.01) {
+        for (var nsi = 0; nsi < nodeSprites.length; nsi++) {
+          nodeSprites[nsi].material.opacity = 0.42 * (1 - nightMode * 0.92);
+        }
+        // 夜间隐藏背景长途弧（线条少一点）
+        for (var nai = 0; nai < ambArcs.length; nai++) {
+          var ac = ambArcs[nai];
+          if (ac.L) ac.L.material.opacity = 0.62 * (1 - nightMode);
+          if (ac.dot) ac.dot.material.opacity = 1 - nightMode;
+          if (ac.dot && ac.dot.userData.glow) ac.dot.userData.glow.material.opacity = 0.75 * (1 - nightMode);
+        }
+      }
       if (window.__sweep) window.__sweep.rotation.y += 0.012;
       if (window.__sweep2) window.__sweep2.rotation.y -= 0.009;
       hot.forEach(function (h) {
@@ -751,7 +788,7 @@
         aglow.scale.setScalar(0.075); aglow.renderOrder = 3;
         globe.add(LA, adot, aglow);
         adot.userData.glow = aglow;
-        ambArcs.push({ c: cv, dot: adot, ph: idx * 0.17, col: colA });
+        ambArcs.push({ c: cv, dot: adot, L: LA, ph: idx * 0.17, col: colA });
       });
       // 背景全球节点：铺满其他区域（装饰层，dim 且更小）
       var NODES = [
@@ -782,12 +819,12 @@
           opacity: 0.42, blending: THREE.AdditiveBlending, depthWrite: false }));
         var sz = 0.020 + (nidx % 5) * 0.004;
         sp.scale.setScalar(sz); sp.position.copy(pos); sp.renderOrder = 4;
-        globe.add(sp);
+        globe.add(sp); nodeSprites.push(sp);
         var fl = new THREE.Sprite(new THREE.SpriteMaterial({
           map: flareTex, color: 0x66d0ff, transparent: true, opacity: 0.30,
           blending: THREE.AdditiveBlending, depthWrite: false }));
         fl.scale.setScalar(sz * 5.0); fl.position.copy(pos); fl.renderOrder = 4;
-        globe.add(fl);
+        globe.add(fl); nodeSprites.push(fl);
       });
       window.__nodes = NODES.length;
 

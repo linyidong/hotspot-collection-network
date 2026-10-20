@@ -111,6 +111,8 @@ main{flex:1;min-height:0;display:flex;gap:10px;padding:10px}
 .opts{display:flex;flex-wrap:wrap;gap:5px}
 .op{font-size:11px;padding:2px 7px;border-radius:3px;border:1px solid rgba(120,180,255,.18);color:#9fb4d8;cursor:pointer;white-space:nowrap}
 .op.sel{border-color:#35d0e8;color:#eaf6ff;box-shadow:0 0 6px rgba(53,208,232,.4)}
+/* 地球上方工具条 */
+#globebar{flex:none;display:flex;align-items:center;gap:8px;justify-content:flex-end;padding:0 4px 4px}
 /* 中央 3D 地球 */
 #cen{flex:1;min-width:0;display:flex;flex-direction:column;gap:6px}
 #g3d{flex:1;min-height:0;position:relative}
@@ -192,8 +194,6 @@ footer b{color:#9fb4d8}
   <span class="spend" id="next">下一轮 —</span>
   <span class="spend" id="ver">v—</span>
   <button class="nav" id="btnPop">备忘录</button>
-  <button class="nav" id="btnNight" title="切换夜间模式（黑球 + 大陆轮廓 + 城市灯光）">夜间</button>
-  <a class="nav" href="/static/cost.html">成本</a>
   <a class="nav" href="/static/settings.html">设置</a>
   <button id="btn">一键采集</button>
 </header>
@@ -222,6 +222,10 @@ footer b{color:#9fb4d8}
     <div class="dico"><span>时</span><span>段</span><span>业</span><span>级</span></div>
   </aside>
   <section id="cen">
+    <div id="globebar">
+      <button class="nav" id="btnNight" title="切换夜间模式（镂空地球 + 悬浮大陆 + 城市灯光）">夜间</button>
+      <a class="nav" href="/static/cost.html">成本</a>
+    </div>
     <div id="g3d">
       <div class="dgl" id="dgl">当前浏览器不支持 WebGL，无法显示 3D 地球。</div>
       <div class="ovl" id="ovl"></div>
