@@ -99,8 +99,9 @@
     } else { EXCL = []; }
     buildIndChips();
     showEmptyState();
-    render();
+    // 先暴露给地球模块，再渲染（否则 setDots 时拿不到 leads，光点缺 id/潜力）
     window.__leads = LEAD; window.__batch = BATCH_INFO; window.__sources = SOURCES; window.__excl = EXCL;
+    render();
   }
 
   function buildIndChips() {
@@ -305,7 +306,7 @@
     Object.keys(m).forEach(function (k) {
       var v = m[k], st = "S1", mx = 0;
       Object.keys(v.stages).forEach(function (s) { if (v.stages[s] > mx) { mx = v.stages[s]; st = s; } });
-      out.push({ lat: v.lat, lon: v.lon, n: v.n, stage: st });
+      out.push({ lat: v.lat, lon: v.lon, n: v.n, stage: st, country: k });
     });
     return out;
   }

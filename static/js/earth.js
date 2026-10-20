@@ -210,7 +210,7 @@
       downPt = { x: e.clientX, y: e.clientY };
       drag = { x: e.clientX, y: e.clientY };
       auto = performance.now(); ivx = ivy = 0;
-      cv.setPointerCapture(e.pointerId);
+      try { cv.setPointerCapture(e.pointerId); } catch (_) { /* 合成事件/无指针设备时忽略 */ }
       e.stopPropagation();
     });
     document.addEventListener("pointermove", function (e) {
@@ -265,6 +265,7 @@
     var sunRefreshMs = 60000;
     (function tick() {
       var now = performance.now(), t = clkT.getElapsedTime();
+      globe.updateMatrixWorld(true); // 先刷新矩阵，保证悬停/点击射线命中正确
       starsLayer.forEach(function (s) { s.mat.uniforms.uT.value = t; });
       starsLayer.forEach(function (s) { s.obj.rotation.y += 0.00006; });
       if (now - sunTimer >= sunRefreshMs) { sunTimer = now; refreshSun(); }
