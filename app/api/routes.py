@@ -296,6 +296,73 @@ def create_app() -> FastAPI:
             conn.close()
         return {"ok": True}
 
+    # ---------------- T13：按需 AI 解析 + 建议清单 ----------------
+    @app.get("/api/suggestions")
+    def suggestions(limit: int = 8):
+        """AI 建议解析的热点：最新批次里粗筛通过、但还没深加工的条目（按潜力分排序）。"""
+        limit = max(1, min(int(limit), 30))
+        conn = db.get_conn()
+        try:
+            b = conn.execute("SELECT id FROM batches ORDER BY id DESC LIMIT 1").fetchone()
+            if b is None:
+                return {"batch_id": None, "items": []}
+            rows = conn.execute(
+                "SELECT i.id, i.title, i.url, i.published_at, s.name AS source, "
+                "a.payload_json FROM items i "
+                "LEFT JOIN sources s ON s.id=i.source_id "
+                "JOIN analyses a ON a.item_id=i.id AND a.stage='coarse' AND a.status='ok' "
+                "LEFT JOIN analyses d ON d.item_id=i.id AND d.stage='deep' "
+                "WHERE i.batch_id=? AND i.is_duplicate=0 AND d.id IS NULL "
+                "ORDER BY i.id DESC LIMIT 200", (b["id"],)).fetchall()
+            out = []
+            for r in rows:
+                try:
+                    p = json.loads(r["payload_json"] or "{}")
+                except (ValueError, TypeError):
+                    p = {}
+                anchors = p.get("anchors") or {}
+                out.append({
+                    "id": r["id"], "title": r["title"], "url": r["url"],
+                    "published_at": r["published_at"], "source": r["source"],
+                    "potential": p.get("potential", 0),
+                    "country": anchors.get("country") or "",
+                    "category": anchors.get("category") or "",
+                })
+            out.sort(key=lambda x: -(x["potential"] or 0))
+            return {"batch_id": b["id"], "items": out[:limit]}
+        finally:
+            conn.close()
+
+    @app.post("/api/item/{item_id}/analyze")
+    def analyze_item(item_id: int):
+        """对单条按需做 AI 解析（同步，约 5–10 秒）；已解析过则直接返回缓存。"""
+        from ..pipeline import analyze_one
+        conn = db.get_conn()
+        try:
+            row = conn.execute("SELECT id FROM items WHERE id=?", (item_id,)).fetchone()
+            if row is None:
+                return JSONResponse(status_code=404, content={"ok": False, "error": "条目不存在"})
+            cached = conn.execute(
+                "SELECT payload_json, status FROM analyses WHERE item_id=? AND stage='deep' "
+                "ORDER BY id DESC LIMIT 1", (item_id,)).fetchone()
+        finally:
+            conn.close()
+        if cached is not None:
+            try:
+                data = json.loads(cached["payload_json"] or "{}")
+            except (ValueError, TypeError):
+                data = {}
+            if data.get("card"):
+                return {"ok": True, "cached": True, "status": cached["status"],
+                        "card": data.get("card"), "reasons": data.get("reasons") or []}
+        try:
+            res = analyze_one(item_id)
+        except Exception as exc:
+            return JSONResponse(status_code=500,
+                                content={"ok": False, "error": f"解析失败：{type(exc).__name__}: {exc}"})
+        return {"ok": True, "cached": False, "status": res["status"],
+                "card": res.get("card"), "reasons": res.get("reasons") or []}
+
     # ---------------- T9：业务设置 ----------------
     @app.get("/api/settings")
     def get_settings():

@@ -199,12 +199,13 @@
     var st = l.stage || "S1", g = GRADE[l.confidence] || "C";
     var n = l.next_action || {};
     var tt = String(l.title || "").replace(/\s+/g, " ").trim();
-    return '<div class="card s' + st.slice(1) + '" data-id="' + (l.id || "") +
-      '" title="' + esc(tt) + '（点击查看详情）">' +
+    return '<div class="card s' + st.slice(1) + '" data-id="' + (l.id || "") + '">' +
       '<div class="ch"><span class="st s' + st.slice(1) + '">' + (STAGE_NAME[st] || st) + "</span>" +
       '<span class="tg">' + esc(indLabel(l.vertical)) + "</span>" +
+      '<button class="ai" data-ai="' + (l.id || "") + '" title="让 AI 解析这条的赚钱机会">AI解析</button>' +
       '<span class="gr ' + GRADE_CLS[g] + '">' + g + "</span></div>" +
-      '<div class="fact">' + esc(tt) + "</div>" +
+      '<div class="fact"><a href="' + esc(l.url || "#") + '" target="_blank" rel="noopener" ' +
+      'title="' + esc(tt) + '">' + esc(tt) + "</a></div>" +
       '<div class="next">→ ' + esc(n.action || "—") + "</div>" +
       '<div class="cf"><span>钱流：' + esc(l.money_form || "—") + "</span><span>" + fmtTime(l.published_at) + "</span></div></div>";
   }
@@ -243,6 +244,12 @@
       if (box && !box.__bound) {
         box.__bound = true;
         box.addEventListener("click", function (ev) {
+          // 点标题链接 / AI解析按钮时不进详情
+          if (ev.target.closest("a,button.ai")) {
+            var b = ev.target.closest("button.ai");
+            if (b) { ev.stopPropagation(); openAnalyze(b.getAttribute("data-ai")); }
+            return;
+          }
           var el = ev.target.closest(".card");
           var id = el && el.getAttribute("data-id");
           if (id) window.open("/static/detail.html?id=" + id, "_blank");
@@ -381,6 +388,165 @@
   bindChips($("opTime"), "time");
   bindChips($("opStage"), "stage");
   bindChips($("opGrade"), "grade");
+
+  // ===== 采集来源列表（左抽屉）=====
+  function renderSources() {
+    var box = $("srcList");
+    if (!box) return;
+    if (!SOURCES || !SOURCES.length) { box.innerHTML = '<div class="srcrow dim">暂无来源数据</div>'; return; }
+    box.innerHTML = SOURCES.map(function (s) {
+      var cls = s.status === "ok" ? "ok" : (s.status === "never" ? "" : "err");
+      return '<div class="srcrow ' + cls + '" title="' + esc(s.name) + '（' +
+        (s.status === "ok" ? "正常" : "异常") + '）">' +
+        '<span class="d"></span><span class="n">' + esc(s.name) + '</span>' +
+        '<span class="c">' + (s.last_count || 0) + '</span></div>';
+    }).join("");
+  }
+
+  // ===== AI 建议解析 =====
+  function sugHTML(x) {
+    var tt = String(x.title || "").replace(/\s+/g, " ").trim();
+    return '<div class="sug"><div class="st">潜力 ' + (x.potential || 0) + " · " +
+      esc(x.category || "未分类") + (x.country ? " · " + esc(x.country) : "") + "</div>" +
+      '<div class="ti" title="' + esc(tt) + '">' + esc(tt) + "</div>" +
+      '<div class="ac"><span class="dim">' + esc(x.source || "") + " · " + fmtTime(x.published_at) + "</span>" +
+      '<button data-sug="' + x.id + '">AI解析</button></div></div>';
+  }
+  async function loadSuggestions() {
+    var j = await api("/api/suggestions?limit=8").catch(function () { return null; });
+    var items = (j && j.items) || [];
+    var box = $("pSug");
+    if (!box) return;
+    box.innerHTML = items.length ? items.map(sugHTML).join("")
+      : '<div class="dim">暂无建议：本轮粗筛通过的条目都已解析，或还没有新批次。</div>';
+    $("cSug").textContent = items.length;
+    Array.prototype.forEach.call(box.querySelectorAll("button[data-sug]"), function (b) {
+      b.onclick = function (ev) { ev.stopPropagation(); openAnalyze(b.getAttribute("data-sug")); };
+    });
+  }
+
+  // ===== AI 解析弹层 =====
+  function modalShow(title) {
+    $("mTitle").textContent = title || "AI 解析结果";
+    $("mBody").innerHTML = '<div class="dim">解析中…（约 5–10 秒，会消耗少量模型费用）</div>';
+    $("modal").classList.add("show");
+  }
+  function modalHide() { $("modal").classList.remove("show"); }
+  function renderCard(c) {
+    if (!c) return '<div class="dim">没有可展示的解析结果。</div>';
+    var money = c.money_hypothesis || {}, na = c.next_action || {}, fe = c.feasibility || {};
+    var fails = [];
+    if (fe.needs_license) fails.push("需资质");
+    if (fe.needs_capital) fails.push("需垫资");
+    if (fe.needs_team) fails.push("需团队");
+    if (fe.needs_identity) fails.push("需企业身份");
+    var h = "";
+    h += "<h4>事实</h4><div class=\"v\">" + esc(c.fact || "—") + "</div>";
+    h += '<div class="g">阶段 ' + esc(c.stage || "—") +
+      (c.anchor && c.anchor.vertical ? " · 行业 " + esc(c.anchor.vertical) : "") +
+      " · 等级 " + (GRADE[c.confidence] || "C") + "</div>";
+    h += "<h4>谁在缺什么</h4><div class=\"v\">" + esc(c.buyer_hypothesis || "—") + "</div>";
+    h += "<h4>钱流</h4><div class=\"v\">" + esc(money.form || "—") + " · 付钱方 " +
+      esc(money.payer || "—") + "</div><div class=\"g\">你赚：" + esc(money.your_cut || "—") +
+      "（" + esc(money.status || "待验证") + "）</div>";
+    h += "<h4>下一步</h4><div class=\"v\">" + esc(na.action || "—") + "</div><div class=\"g\">对象：" +
+      esc(na.target || "—") + "</div><div class=\"g\">做法：" + esc(na.how || "—") + "</div>";
+    if (c.verify_plan && c.verify_plan.length) {
+      h += "<h4>验证计划</h4><ul style=\"padding-left:18px\">" +
+        c.verify_plan.map(function (v) { return "<li>" + esc(v) + "</li>"; }).join("") + "</ul>";
+    }
+    h += "<h4>能力闸</h4><div class=\"v\">" + (fails.length ? "不通过：" + esc(fails.join("、"))
+      : "通过（个人能力范围内）") + "</div><div class=\"g\">" + esc(fe.reason || "") + "</div>";
+    return h;
+  }
+  async function openAnalyze(id) {
+    if (!id) return;
+    modalShow("AI 解析中…");
+    try {
+      var r = await fetch("/api/item/" + id + "/analyze", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: "{}"
+      });
+      var j = await r.json();
+      if (!j.ok) { $("mBody").innerHTML = '<div class="dim">解析失败：' + esc(j.error || ("HTTP " + r.status)) + "</div>"; return; }
+      $("mTitle").textContent = j.cached ? "AI 解析结果（已缓存）" : "AI 解析结果";
+      if (j.card) { $("mBody").innerHTML = renderCard(j.card); }
+      else { $("mBody").innerHTML = '<div class="dim">这条没有可执行机会：' +
+        esc((j.reasons || []).join("；") || "模型按规则认输") + "</div>"; }
+      loadSuggestions();
+    } catch (e) {
+      $("mBody").innerHTML = '<div class="dim">解析失败：' + esc(e.message) + "</div>";
+    }
+  }
+  $("mClose").onclick = modalHide;
+  $("modal").addEventListener("click", function (e) { if (e.target === $("modal")) modalHide(); });
+
+  // ===== 备忘录 / 收藏 弹层 =====
+  var popTab = "notes";
+  function popItem(r, isNotes) {
+    return '<div class="pitem" data-id="' + r.item_id + '"><div class="t">' + esc(r.title) + "</div>" +
+      (isNotes && r.content ? '<div class="n">' + esc(r.content) + "</div>" : "") +
+      '<div class="m">' + esc(r.source || "") + " · " +
+      (isNotes ? fmtTime(r.updated_at) : fmtTime(r.created_at)) + "</div></div>";
+  }
+  async function loadPop() {
+    var body = $("popBody");
+    body.innerHTML = '<div class="dim">加载中…</div>';
+    var isNotes = popTab === "notes";
+    var j = await api(isNotes ? "/api/notes?limit=50" : "/api/favorites?limit=50")
+      .catch(function () { return null; });
+    var rows = (j && (isNotes ? j.notes : j.favorites)) || [];
+    body.innerHTML = rows.length
+      ? rows.map(function (r) { return popItem(r, isNotes); }).join("")
+      : '<div class="dim">' + (isNotes ? "还没有备注。打开任意线索卡详情即可写。"
+        : "还没有收藏。在详情页点「☆ 收藏」。") + "</div>";
+    Array.prototype.forEach.call(body.querySelectorAll(".pitem"), function (el) {
+      el.onclick = function () { window.open("/static/detail.html?id=" + el.getAttribute("data-id"), "_blank"); };
+    });
+  }
+  $("btnPop").onclick = function (e) {
+    e.stopPropagation();
+    var p = $("pop");
+    p.classList.toggle("show");
+    if (p.classList.contains("show")) loadPop();
+  };
+  $("popClose").onclick = function () { $("pop").classList.remove("show"); };
+  Array.prototype.forEach.call(document.querySelectorAll(".ptab"), function (t) {
+    t.onclick = function () {
+      Array.prototype.forEach.call(document.querySelectorAll(".ptab"), function (x) { x.classList.remove("on"); });
+      t.classList.add("on");
+      popTab = t.getAttribute("data-t");
+      loadPop();
+    };
+  });
+  document.addEventListener("click", function (e) {
+    var p = $("pop");
+    if (p.classList.contains("show") && !p.contains(e.target) && e.target.id !== "btnPop") {
+      p.classList.remove("show");
+    }
+  });
+
+  var _render = render;
+  render = function () { _render(); renderSources(); };
+  loadSuggestions();
+
+  // 深链：?panel=notes|fav 打开弹层；?analyze=<id> 直接解析该条
+  (function () {
+    var q = new URLSearchParams(location.search);
+    var panel = q.get("panel");
+    if (panel) {
+      $("pop").classList.add("show");
+      var tab = panel === "fav" ? "fav" : "notes";
+      Array.prototype.forEach.call(document.querySelectorAll(".ptab"), function (t) {
+        t.classList.toggle("on", t.getAttribute("data-t") === tab);
+      });
+      popTab = tab;
+      loadPop();
+    }
+    var aid = q.get("analyze");
+    if (aid) openAnalyze(aid);
+  })();
+
   fetchAll();
   setInterval(fetchAll, 60000);
+  setInterval(loadSuggestions, 60000);
 })();

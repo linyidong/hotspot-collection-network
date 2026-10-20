@@ -235,6 +235,44 @@ def deep_one(item, coarse_res: dict, batch_id: int, model: str = None) -> dict:
 # ---------------------------------------------------------------------------
 # 单轮流水线
 # ---------------------------------------------------------------------------
+def analyze_one(item_id: int) -> dict:
+    """按需解析单条（界面「AI 解析」按钮）：读条目 + 最近一次粗筛结果 → deep_one → 落库。
+    返回 {'status': ok|rejected|failed, 'card':..., 'reasons': [...]}。"""
+    cfg = settings_store.load()
+    conn = db.get_conn()
+    try:
+        item = conn.execute(
+            "SELECT i.id, i.batch_id, i.title, i.summary, i.published_at, i.url, "
+            "s.name AS source_name FROM items i LEFT JOIN sources s ON s.id=i.source_id "
+            "WHERE i.id=?", (item_id,)).fetchone()
+        if item is None:
+            raise ValueError("条目不存在")
+        crow = conn.execute(
+            "SELECT payload_json FROM analyses WHERE item_id=? AND stage='coarse' "
+            "ORDER BY id DESC LIMIT 1", (item_id,)).fetchone()
+        try:
+            coarse = json.loads(crow["payload_json"]) if crow and crow["payload_json"] else {}
+        except (ValueError, TypeError):
+            coarse = {}
+    finally:
+        conn.close()
+
+    res = deep_one(item, coarse, item["batch_id"], cfg["deep_model"])
+    conn = db.get_conn()
+    try:
+        conn.execute(
+            "INSERT INTO analyses(item_id, stage, model, payload_json, status, cost, created_at) "
+            "VALUES(?,?,?,?,?,?,?)",
+            (item_id, "deep", cfg["deep_model"],
+             json.dumps({"card": res.get("card"), "reasons": res.get("reasons") or []},
+                        ensure_ascii=False),
+             res["status"], res.get("cost", 0.0), _now()))
+        conn.commit()
+    finally:
+        conn.close()
+    return res
+
+
 def run_once(deep_limit: int = None, trigger: str = "手动") -> dict:
     """完整一轮：建批次 → 采集 → 落库 → 去重 → 粗筛 → 深加工 → 记账 → 收尾。
     deep_limit：本轮深加工上限（None 用默认 10；0 表示跳过深加工）。
