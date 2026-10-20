@@ -2,6 +2,7 @@
 """模块：定时调度与手动触发。职责：按每日固定轮次（默认 08/11/14/17/20/23）
     或测试用间隔（RUN_INTERVAL_MINUTES）触发 pipeline.run_once；用进程内锁保证
     同一时刻只有一轮在跑；启动时若距上次完成超过间隔则补跑一次。
+    另含每日过期数据清理（每天 04:05 触发 + 启动时补一次，失败只记日志）。
     关键依赖：apscheduler、app.pipeline、app.db、app.config。"""
 import os
 import threading
@@ -91,8 +92,21 @@ def _interval_minutes() -> int:
         return 0
 
 
+def _cleanup_now():
+    """过期数据清理：失败只记日志，绝不影响采集。"""
+    try:
+        from .cleanup import run as cleanup_run
+        res = cleanup_run()
+        print(f"[清理] 完成：items {res['items']} / analyses {res['analyses']} / "
+              f"notes {res['notes']} / favorites {res['favorites']} / "
+              f"llm_calls {res['llm_calls']}", flush=True)
+    except Exception as exc:
+        print(f"[清理] 失败（不影响采集）：{type(exc).__name__}: {exc}", flush=True)
+
+
 def start(deep_limit=None):
-    """启动调度器：优先按 RUN_INTERVAL_MINUTES，否则按每日轮次。"""
+    """启动调度器：优先按 RUN_INTERVAL_MINUTES，否则按每日轮次。
+    额外挂每日 04:05 的过期数据清理任务，并立即补跑一次清理。"""
     global _scheduler, _DEEP_LIMIT
     _DEEP_LIMIT = deep_limit
     if _scheduler is not None:
@@ -112,7 +126,13 @@ def start(deep_limit=None):
                           max_instances=1, coalesce=True)
         note = "每日 08/11/14/17/20/23"
 
+    # 每日过期数据清理（04:05，失败只记日志）
+    sched.add_job(_cleanup_now, CronTrigger(hour=4, minute=5), id="cleanup_daily",
+                  max_instances=1, coalesce=True)
+
     sched.start()
+    # 启动清理：立即补一次过期数据清理
+    _cleanup_now()
     job = sched.get_jobs()[0]
     STATE["next_run_at"] = job.next_run_time.strftime("%Y-%m-%d %H:%M:%S") if job.next_run_time else None
     print(f"[调度] 已启动：{note}；下一轮 {STATE['next_run_at']}", flush=True)

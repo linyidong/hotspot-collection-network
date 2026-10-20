@@ -21,7 +21,7 @@
   };
   var TIME_OPTS = [["1小时",3600e3],["3小时",10800e3],["6小时",21600e3],["24小时",86400e3],["48小时",172800e3],["7天",604800e3],["全部",Infinity]];
 
-  var LEAD = [], BATCH_ID = null, BATCH_INFO = null, SOURCES = null, BATCHES = [], RUN = null, HEALTH = null, EXCL = [];
+  var LEAD = [], BATCH_ID = null, BATCH_INFO = null, SOURCES = null, BATCHES = [], RUN = null, HEALTH = null, EXCL = [], BUDGET = null;
   var F = { time: "3小时", stage: { S1: 1, S2: 1, S3: 1, S4: 1 }, ind: {}, grade: { A: 1, B: 1, C: 1 } };
   var collecting = false;
   var sleep = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
@@ -60,13 +60,15 @@
       api("/api/sources").catch(function () { return null; }),
       api("/api/batches").catch(function () { return null; }),
       api("/api/leads?batch=latest&limit=50").catch(function () { return null; }),
-      api("/api/run/status").catch(function () { return null; })
+      api("/api/run/status").catch(function () { return null; }),
+      api("/api/budget").catch(function () { return null; })
     ];
     var res = await Promise.all(tasks);
     HEALTH = res[0];
     SOURCES = (res[1] && res[1].sources) || null;
     BATCHES = (res[2] && res[2].batches) || [];
     RUN = res[4];
+    BUDGET = res[5];
     // 合并最近几个含线索的批次（latest 批优先 + 最近几个 deep_ok>0 的批，标题全部来自真实接口）
     var latestLeads = (res[3] && res[3].leads) || [];
     var latestBid = (res[3] && res[3].batch_id) || null;
@@ -151,6 +153,24 @@
     if (window.EARTH) window.EARTH.setDots(dots);
     window.__dots = dots.length;
     $("fdots").textContent = window.__dots;
+    renderBudgetBanner();
+  }
+
+  // 预算熔断横幅：mode≠ok 时大屏顶部显示中文提示（硬停 / 软停）
+  function renderBudgetBanner() {
+    var b = $("budgetBanner");
+    if (!b) return;
+    var m = BUDGET && BUDGET.mode;
+    if (!m || m === "ok") { b.className = ""; b.innerHTML = ""; return; }
+    var spent = BUDGET.spent == null ? "—" : Number(BUDGET.spent).toFixed(2);
+    var budget = BUDGET.budget == null ? "—" : Number(BUDGET.budget).toFixed(2);
+    b.className = "show " + m;
+    b.innerHTML = m === "hard"
+      ? "预算硬停：本月已用 ¥" + spent + "，剩余不足 2%（预算 ¥" + budget +
+        "），已停止所有模型调用，仅保留采集"
+      : "预算预警：本月已用 ¥" + spent + "，剩余不足 10%（预算 ¥" + budget +
+        "），深加工已暂停，仅保留粗筛";
+    window.__budgetMode = m;
   }
 
   // 源状态灯：优先 /api/sources；后端缺失(404)时用最近一轮 stats.sources_ok/failed 兜底

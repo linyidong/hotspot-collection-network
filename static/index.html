@@ -88,6 +88,11 @@ header h1{font-size:16px;color:#eaf2ff;letter-spacing:1px;white-space:nowrap}
 .dim{color:#6b7a94;font-size:12px}
 #sfail{display:none;text-align:center;font-size:12px;color:#ffb020;background:rgba(245,166,35,.1);border-bottom:1px solid rgba(245,166,35,.3);padding:4px 0}
 #sfail.show{display:block}
+/* 预算熔断横幅（mode≠ok 时显示中文提示） */
+#budgetBanner{display:none;text-align:center;font-size:12px;padding:5px 0}
+#budgetBanner.show{display:block}
+#budgetBanner.hard{color:#ffb020;background:rgba(245,166,35,.12);border-bottom:1px solid rgba(245,166,35,.35)}
+#budgetBanner.soft{color:#f5c542;background:rgba(245,197,66,.1);border-bottom:1px solid rgba(245,197,66,.3)}
 /* 主体 */
 main{flex:1;min-height:0;display:flex;gap:10px;padding:10px}
 /* 左抽屉 */
@@ -182,10 +187,12 @@ footer b{color:#9fb4d8}
   <span class="spend" id="next">下一轮 —</span>
   <span class="spend" id="ver">v—</span>
   <button class="nav" id="btnPop">备忘录</button>
+  <a class="nav" href="/static/cost.html">成本</a>
   <a class="nav" href="/static/settings.html">设置</a>
   <button id="btn">一键采集</button>
 </header>
 <div id="sfail">全部数据源采集失败：请检查网络或源配置后重试</div>
+<div id="budgetBanner"></div>
 <main>
   <aside id="drw">
     <div class="dhd"><span class="dtt">图层 / 筛选</span><button id="dtog">‹</button></div>

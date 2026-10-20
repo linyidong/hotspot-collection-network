@@ -66,3 +66,4 @@
 | 2026-10-20 17:00 | 布局：端口统一改 9000（避开 Docker 网关/自建 Supabase）；自适应尺寸（clamp + 媒体查询，1024–2560）；面板拖拽换位（localStorage `hcn_panel_order`，含重置按钮） |
 | 2026-10-20 17:20 | 修复拖动失效：`dragstart` 的 `event.target` 是 panel 本身，`closest('.pt')` 恒空导致 `preventDefault`；改为 `mousedown` 记录 `__canDrag`。CDP 实测：拖动换位、重启保持、重置清空均通过 |
 | 2026-10-20 18:00 | 面板自由调节尺寸：右下角手柄按网格实际格子换算跨度（列 1–2、行 1–3），存 `hcn_panel_size`；重置同时清顺序与尺寸。CDP 实测：向右 span 2、向下 span 3、重启保持、重置清空 |
+| 2026-10-20 19:10 | **T10 完成**：`app/budget.py`（本月花费/预算状态 ok-soft-hard）、`app/cleanup.py`（items 按保留天数连带 analyses/notes/favorites、llm_calls 留 30 天、调度器每日 04:05 + 启动各清一次）、熔断接入 `pipeline.run_once`（hard 整轮不调模型→批次 `stopped_budget`；soft 跳深加工→`deep_skipped_budget`；深加工前复检）、新端点 `/api/budget` `/api/cost` `/api/logs`、`static/cost.html`（成本看板 + 批次日志双 tab）、大屏预算横幅与「成本」入口。实测：硬停轮 llm_calls 4854→4854、批次#23 stopped_budget；软停轮批#24 深加工跳过 186 条；成本合计 7.98 与 SQL 一致；清理删 40 天前调用 1 条/100 天前条目 1 条且保留近期 8615 条 |

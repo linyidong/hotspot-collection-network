@@ -3,6 +3,8 @@
     run_once()，返回统计 dict 供 CLI 摘要与 batches.stats_json。
     去重：URL 归一化（去 utm_*/fbclid/锚点、host 小写）相同或标题相似度 ≥0.9 → 重复条；
     粗筛：deepseek-flash + prompts/coarse.md，并发 6，单条失败重试 1 次，失败不阻塞。
+    熔断：轮首查预算 mode——hard 整轮不调任何模型、soft 只跑粗筛跳过深加工；
+    深加工每次调用前复检一次，防止轮内超支。
     关键依赖：app.sources.collect、app.llm、app.db、app.config。"""
 import hashlib
 import json
@@ -13,7 +15,7 @@ from datetime import datetime
 from difflib import SequenceMatcher
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-from . import db, settings_store
+from . import budget, db, settings_store
 from .config import ROOT, settings
 from .llm import chat
 from .sources.collect import collect_once
@@ -239,6 +241,11 @@ def analyze_one(item_id: int) -> dict:
     """按需解析单条（界面「AI 解析」按钮）：读条目 + 最近一次粗筛结果 → deep_one → 落库。
     返回 {'status': ok|rejected|failed, 'card':..., 'reasons': [...]}。"""
     cfg = settings_store.load()
+    bs = budget.status()
+    if bs["mode"] != "ok":
+        tip = {"hard": "预算硬停（剩余不足 2%）",
+               "soft": "预算软停（剩余不足 10%）"}.get(bs["mode"], bs["mode"])
+        raise ValueError(f"{tip}，已暂停按需 AI 解析；请提高月预算或等待下月重置")
     conn = db.get_conn()
     try:
         item = conn.execute(
@@ -284,8 +291,12 @@ def run_once(deep_limit: int = None, trigger: str = "手动") -> dict:
              "coarse_failed": 0, "deep_ok": 0, "deep_rejected": 0,
              "deep_failed": 0, "deep_skipped": 0, "deep_candidates": 0,
              "deep_r11": 0, "cost": 0.0, "duration_s": 0.0,
-             "sources_ok": 0, "sources_failed": 0}
+             "sources_ok": 0, "sources_failed": 0,
+             "failed_sources": [], "budget_stop": "ok", "deep_skipped_budget": 0}
     try:
+        # 0) 轮首预算熔断检查（hard → 整轮不调用任何模型；soft → 只跑粗筛）
+        budget_mode = budget.status(conn=conn)["mode"]
+        stats["budget_stop"] = budget_mode
         # 1) 建批次
         batch_id = conn.execute(
             "INSERT INTO batches(started_at, trigger, status) VALUES(?,?, 'running')",
@@ -305,6 +316,7 @@ def run_once(deep_limit: int = None, trigger: str = "手动") -> dict:
                 continue
             if r["error"] is not None:
                 stats["sources_failed"] += 1
+                stats["failed_sources"].append(spec.name)
                 continue
             stats["sources_ok"] += 1
             for raw in r["items"]:
@@ -322,8 +334,8 @@ def run_once(deep_limit: int = None, trigger: str = "手动") -> dict:
         # 4) 去重（标记 is_duplicate / duplicate_of）
         stats["after_dedup"] = stats["fetched"] - mark_duplicates(rows_for_dedup)
 
-        # 5) 粗筛（非重复条，并发 6，失败重试 1 次）
-        if stats["after_dedup"] > 0:
+        # 5) 粗筛（非重复条，并发 6，失败重试 1 次；预算硬停时整轮跳过）
+        if stats["after_dedup"] > 0 and budget_mode != "hard":
             to_coarse = conn.execute(
                 "SELECT i.id, i.title, i.summary, i.published_at, i.url, s.name AS source_name "
                 "FROM items i JOIN sources s ON s.id=i.source_id "
@@ -344,42 +356,52 @@ def run_once(deep_limit: int = None, trigger: str = "手动") -> dict:
                         stats["coarse_failed"] += 1
             conn.commit()
 
-        # 5.5) 深加工（只处理粗筛 is_economic=true 的条目，限额，超出进候选池）
+        # 5.5) 深加工（只处理粗筛 is_economic=true 的条目，限额，超出进候选池；
+        #      预算软停时跳过，每次调用前复检一次防止轮内超支）
         limit = cfg["deep_limit"] if deep_limit is None else max(0, int(deep_limit))
-        if limit > 0:
-            candidates = conn.execute(
-                "SELECT i.id, i.title, i.summary, i.published_at, i.url, "
-                "s.name AS source_name, a.payload_json "
-                "FROM items i JOIN sources s ON s.id=i.source_id "
-                "JOIN analyses a ON a.item_id=i.id AND a.stage='coarse' "
-                "WHERE i.batch_id=? AND i.is_duplicate=0 AND a.status='ok' "
-                "ORDER BY i.id LIMIT ?", (batch_id, limit)).fetchall()
-            total_ok = conn.execute(
-                "SELECT COUNT(*) c FROM analyses a JOIN items i ON i.id=a.item_id "
-                "WHERE i.batch_id=? AND a.stage='coarse' AND a.status='ok'",
-                (batch_id,)).fetchone()["c"]
-            stats["deep_candidates"] = len(candidates)
-            stats["deep_skipped"] = max(0, total_ok - len(candidates))
-            for it in candidates:
-                try:
-                    coarse_res = json.loads(it["payload_json"]) if it["payload_json"] else {}
-                except Exception:
-                    coarse_res = {}
-                res = deep_one(it, coarse_res, batch_id, cfg["deep_model"])
-                payload = {"card": res["card"], "reasons": res["reasons"]}
-                conn.execute(
-                    "INSERT INTO analyses(item_id, stage, model, payload_json, "
-                    "status, cost, created_at) VALUES(?,?,?,?,?,?,?)",
-                    (it["id"], "deep", model or DEEP_MODEL,
-                     json.dumps(payload, ensure_ascii=False), res["status"],
-                     res["cost"], _now()))
-                conn.commit()
-                key = {"ok": "deep_ok", "rejected": "deep_rejected"}.get(
-                    res["status"], "deep_failed")
-                stats[key] += 1
-                if res["status"] == "rejected" and any(
-                        str(x).startswith("r11") for x in res["reasons"]):
-                    stats["deep_r11"] += 1
+        if limit > 0 and budget_mode != "hard":
+            if budget_mode == "soft":
+                # 预算软停：粗筛已跑完，本应深加工的候选全部跳过
+                stats["deep_skipped_budget"] = stats["coarse_ok"]
+            else:
+                candidates = conn.execute(
+                    "SELECT i.id, i.title, i.summary, i.published_at, i.url, "
+                    "s.name AS source_name, a.payload_json "
+                    "FROM items i JOIN sources s ON s.id=i.source_id "
+                    "JOIN analyses a ON a.item_id=i.id AND a.stage='coarse' "
+                    "WHERE i.batch_id=? AND i.is_duplicate=0 AND a.status='ok' "
+                    "ORDER BY i.id LIMIT ?", (batch_id, limit)).fetchall()
+                total_ok = conn.execute(
+                    "SELECT COUNT(*) c FROM analyses a JOIN items i ON i.id=a.item_id "
+                    "WHERE i.batch_id=? AND a.stage='coarse' AND a.status='ok'",
+                    (batch_id,)).fetchone()["c"]
+                stats["deep_candidates"] = len(candidates)
+                stats["deep_skipped"] = max(0, total_ok - len(candidates))
+                for idx, it in enumerate(candidates):
+                    bs = budget.status(conn=conn)
+                    if bs["mode"] != "ok":
+                        stats["budget_stop"] = bs["mode"]
+                        stats["deep_skipped_budget"] = len(candidates) - idx
+                        break
+                    try:
+                        coarse_res = json.loads(it["payload_json"]) if it["payload_json"] else {}
+                    except Exception:
+                        coarse_res = {}
+                    res = deep_one(it, coarse_res, batch_id, cfg["deep_model"])
+                    payload = {"card": res["card"], "reasons": res["reasons"]}
+                    conn.execute(
+                        "INSERT INTO analyses(item_id, stage, model, payload_json, "
+                        "status, cost, created_at) VALUES(?,?,?,?,?,?,?)",
+                        (it["id"], "deep", model or DEEP_MODEL,
+                         json.dumps(payload, ensure_ascii=False), res["status"],
+                         res["cost"], _now()))
+                    conn.commit()
+                    key = {"ok": "deep_ok", "rejected": "deep_rejected"}.get(
+                        res["status"], "deep_failed")
+                    stats[key] += 1
+                    if res["status"] == "rejected" and any(
+                            str(x).startswith("r11") for x in res["reasons"]):
+                        stats["deep_r11"] += 1
 
         # 6) 收尾：花费（本批 llm_calls 求和，与摘要完全一致）+ 批次状态
         cost_row = conn.execute(
@@ -387,7 +409,8 @@ def run_once(deep_limit: int = None, trigger: str = "手动") -> dict:
             (batch_id,)).fetchone()
         stats["cost"] = round(cost_row["c"] or 0.0, 6)
         stats["duration_s"] = round(time.time() - t0, 1)
-        status = "degraded" if stats["sources_failed"] > 0 else "done"
+        status = "stopped_budget" if stats["budget_stop"] == "hard" \
+            else ("degraded" if stats["sources_failed"] > 0 else "done")
         conn.execute(
             "UPDATE batches SET finished_at=?, status=?, stats_json=? WHERE id=?",
             (_now(), status, json.dumps(stats, ensure_ascii=False), batch_id))

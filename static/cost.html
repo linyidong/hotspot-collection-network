@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<!-- 模块：T10 成本与日志页（原生 JS 零构建）。职责：预算卡片（本月已用/剩余/比例/模式 + 进度条）、
+     最近 30 天按日花费柱状图、本月按阶段/按模型汇总表、批次日志（每轮抓取/去重/粗筛/深加工/花费/耗时/失败源）。 -->
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>热点采集网络 · 成本与日志</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#060a12;color:#cdd9ee;font:13px/1.5 "Microsoft YaHei","PingFang SC",Arial,sans-serif;min-height:100vh;display:flex;flex-direction:column}
+header{height:44px;flex:none;display:flex;align-items:center;gap:12px;padding:0 14px;border-bottom:1px solid rgba(120,180,255,.18);background:linear-gradient(180deg,rgba(28,58,106,.5),rgba(6,10,18,0))}
+header h1{font-size:16px;color:#eaf2ff;letter-spacing:1px}
+.sub{font-size:10px;color:#f5c542;border:1px solid rgba(245,197,66,.55);padding:0 5px;border-radius:3px}
+.nav{font-size:12px;color:#7fd4ff;text-decoration:none;padding:4px 10px;border:1px solid rgba(120,180,255,.3);border-radius:4px;background:transparent;cursor:pointer;font-family:inherit}
+.nav:hover{background:rgba(120,180,255,.15)}
+#budgetChip{margin-left:auto;font-size:12px;padding:2px 10px;border-radius:4px;white-space:nowrap}
+.chip.ok{color:#2ecc8f;border:1px solid rgba(46,204,143,.5);background:rgba(46,204,143,.1)}
+.chip.soft{color:#f5c542;border:1px solid rgba(245,197,66,.5);background:rgba(245,197,66,.1)}
+.chip.hard{color:#ffb020;border:1px solid rgba(245,166,35,.5);background:rgba(245,166,35,.12)}
+#budgetBanner{display:none;text-align:center;font-size:12px;padding:5px 0}
+#budgetBanner.show{display:block}
+#budgetBanner.hard{color:#ffb020;background:rgba(245,166,35,.12);border-bottom:1px solid rgba(245,166,35,.35)}
+#budgetBanner.soft{color:#f5c542;background:rgba(245,197,66,.1);border-bottom:1px solid rgba(245,197,66,.3)}
+main{flex:1;padding:14px;display:flex;flex-direction:column;gap:12px;max-width:1100px;width:100%;margin:0 auto}
+.box{background:rgba(255,255,255,.035);border:1px solid rgba(120,180,255,.14);border-radius:8px;padding:12px}
+.bh{font-size:13px;color:#eaf2ff;margin-bottom:10px}
+.brow{display:flex;gap:18px;flex-wrap:wrap;margin-bottom:10px}
+.stat{display:flex;flex-direction:column;gap:2px}
+.stat .k{font-size:10px;color:#7c8aa5}
+.stat .v{font-size:15px;color:#e6efff;font-family:Consolas,monospace}
+.stat .v.neg{color:#ffb020}
+.bar{height:10px;border-radius:5px;background:rgba(107,122,148,.25);overflow:hidden;margin-bottom:10px}
+.bar .fill{height:100%;border-radius:5px;transition:width .4s}
+.fill.ok{background:linear-gradient(90deg,#17b3c9,#2ecc8f)}
+.fill.soft{background:linear-gradient(90deg,#f5a623,#f5c542)}
+.fill.hard{background:linear-gradient(90deg,#ff5b5b,#ffb020)}
+.mrow{display:flex;gap:26px;flex-wrap:wrap}
+.tabs{display:flex;gap:6px;margin-bottom:10px}
+.tab{font-size:12px;padding:3px 12px;border-radius:4px;border:1px solid rgba(120,180,255,.25);color:#9fb4d8;cursor:pointer}
+.tab.on{background:#2e8bf5;color:#fff;border-color:#2e8bf5}
+.g-t{font-size:11px;color:#7c8aa5;margin:8px 0 6px}
+.bars{display:flex;align-items:flex-end;gap:3px;height:120px;border-bottom:1px solid rgba(120,180,255,.14);padding-top:6px;overflow-x:auto}
+.bcol{flex:1;min-width:14px;display:flex;flex-direction:column;justify-content:flex-end;height:100%}
+.bcol .fill{width:100%;border-radius:2px 2px 0 0;background:linear-gradient(180deg,#2e8bf5,#17b3c9);min-height:1px}
+.bcol:hover .fill{background:linear-gradient(180deg,#35d0e8,#2e8bf5)}
+.bcol .lbl{font-size:9px;color:#6b7a94;text-align:center;margin-top:2px;white-space:nowrap}
+.bcol .val{display:none;font-size:9px;color:#e6efff;text-align:center}
+.bcol:hover .val{display:block}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+@media (max-width:760px){.grid2{grid-template-columns:1fr}}
+table{width:100%;border-collapse:collapse;font-size:12px}
+th{font-size:10px;color:#7c8aa5;text-align:left;padding:4px 6px;border-bottom:1px solid rgba(120,180,255,.2);font-weight:400}
+td{padding:4px 6px;color:#cdd9ee;border-bottom:1px solid rgba(120,180,255,.08)}
+td.num{text-align:right;font-family:Consolas,monospace}
+.log{border:1px solid rgba(120,180,255,.12);border-left:3px solid #2e8bf5;border-radius:5px;padding:8px 10px;margin-bottom:8px;background:rgba(22,40,72,.4)}
+.log.stopped_budget{border-left-color:#ffb020}
+.log.failed{border-left-color:#ff5b5b}
+.lh{display:flex;align-items:center;gap:8px;font-size:12px;color:#eaf2ff;flex-wrap:wrap}
+.bdg{font-size:10px;padding:0 6px;border-radius:3px;white-space:nowrap}
+.bdg.done{background:rgba(46,204,143,.18);color:#2ecc8f;border:1px solid rgba(46,204,143,.4)}
+.bdg.degraded{background:rgba(245,166,35,.15);color:#f5a623;border:1px solid rgba(245,166,35,.4)}
+.bdg.failed{background:rgba(255,91,91,.15);color:#ff5b5b;border:1px solid rgba(255,91,91,.4)}
+.bdg.stopped_budget{background:rgba(245,166,35,.2);color:#ffb020;border:1px solid rgba(245,166,35,.5)}
+.bdg.running{background:rgba(53,208,232,.15);color:#35d0e8;border:1px solid rgba(53,208,232,.4)}
+.lc{font-size:11px;color:#9fb4d8;margin-top:3px;line-height:1.6;word-break:break-all}
+.lc .warn{color:#ffb020}
+.dim{color:#6b7a94;font-size:12px;padding:10px 4px}
+</style>
+</head>
+<body>
+<header>
+  <h1>热点采集网络</h1>
+  <span class="sub">成本 · 预算 · 日志</span>
+  <span id="budgetChip" class="chip ok">加载中…</span>
+  <a class="nav" href="/">返回大屏</a>
+  <a class="nav" href="/static/settings.html">设置</a>
+</header>
+<div id="budgetBanner"></div>
+<main>
+  <section class="box">
+    <div class="bh">本月预算与花费</div>
+    <div class="brow">
+      <div class="stat"><span class="k">预算（元）</span><span class="v" id="bBudget">—</span></div>
+      <div class="stat"><span class="k">本月已用（元）</span><span class="v" id="bSpent">—</span></div>
+      <div class="stat"><span class="k">剩余（元）</span><span class="v" id="bRemain">—</span></div>
+      <div class="stat"><span class="k">剩余比例</span><span class="v" id="bRatio">—</span></div>
+      <div class="stat"><span class="k">熔断模式</span><span class="v" id="bMode">—</span></div>
+      <div class="stat"><span class="k">本月合计</span><span class="v" id="cMonth">—</span></div>
+      <div class="stat"><span class="k">累计合计</span><span class="v" id="cTotal">—</span></div>
+    </div>
+    <div class="bar"><div class="fill" id="bFill"></div></div>
+  </section>
+  <section class="box">
+    <div class="tabs">
+      <span class="tab on" data-t="cost">成本（按天）</span>
+      <span class="tab" data-t="log">批次日志</span>
+    </div>
+    <div id="tabCost">
+      <div class="g-t">最近 30 天模型花费（元，悬停看数值）</div>
+      <div id="bars" class="bars"><div class="dim">加载中…</div></div>
+      <div class="grid2">
+        <div><div class="g-t">按阶段（本月）</div><table id="tStage"><tr><td class="dim">加载中…</td></tr></table></div>
+        <div><div class="g-t">按模型（本月）</div><table id="tModel"><tr><td class="dim">加载中…</td></tr></table></div>
+      </div>
+    </div>
+    <div id="tabLog" style="display:none"><div class="dim">加载中…</div></div>
+  </section>
+</main>
+<script>
+(function () {
+  "use strict";
+  var $ = function (i) { return document.getElementById(i); };
+  var esc = function (s) {
+    return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
+  };
+  var MODE_NAME = { ok: "正常", soft: "软停（深加工暂停）", hard: "硬停（全部模型暂停）" };
+  var ST_NAME = { done: "完成", degraded: "降级", failed: "失败", stopped_budget: "预算硬停", running: "运行中" };
+
+  function fmtNum(x, d) { return (x == null) ? "—" : Number(x).toFixed(d == null ? 4 : d); }
+
+  function renderBudget(b) {
+    $("bBudget").textContent = fmtNum(b.budget, 2);
+    $("bSpent").textContent = fmtNum(b.spent, 4);
+    $("bRemain").textContent = fmtNum(b.remaining, 4);
+    $("bRatio").textContent = fmtNum(b.ratio * 100, 1) + "%";
+    var m = b.mode || "ok";
+    $("bMode").textContent = MODE_NAME[m] || m;
+    var chip = $("budgetChip");
+    chip.className = "chip " + m;
+    chip.textContent = "熔断模式：" + (MODE_NAME[m] || m);
+    var fill = $("bFill");
+    fill.className = "fill " + m;
+    fill.style.width = Math.max(0, Math.min(100, (b.budget > 0 ? (b.spent / b.budget) * 100 : 0))) + "%";
+    var ban = $("budgetBanner");
+    if (m === "ok") { ban.className = ""; ban.innerHTML = ""; }
+    else {
+      ban.className = "show " + m;
+      ban.innerHTML = (m === "hard"
+        ? "预算硬停：本月已用 ¥" + fmtNum(b.spent, 2) + "，剩余不足 2%（预算 ¥" + fmtNum(b.budget, 2) +
+          "），已停止所有模型调用，仅保留采集"
+        : "预算预警：本月已用 ¥" + fmtNum(b.spent, 2) + "，剩余不足 10%（预算 ¥" + fmtNum(b.budget, 2) +
+          "），深加工已暂停，仅保留粗筛");
+    }
+  }
+
+  function renderBars(byDay) {
+    var box = $("bars");
+    if (!byDay || !byDay.length) { box.innerHTML = '<div class="dim">最近 30 天暂无调用记录</div>'; return; }
+    var max = 1;
+    byDay.forEach(function (d) { if (d.cost > max) max = d.cost; });
+    box.innerHTML = byDay.map(function (d) {
+      var h = Math.max(2, Math.round((d.cost / max) * 100));
+      var label = String(d.date || "").slice(5);   // MM-DD
+      return '<div class="bcol" title="' + esc(d.date) + " ¥" + fmtNum(d.cost) + '">' +
+        '<span class="val">' + fmtNum(d.cost, 2) + "</span>" +
+        '<div class="fill" style="height:' + h + '%"></div>' +
+        '<span class="lbl">' + esc(label) + "</span></div>";
+    }).join("");
+  }
+
+  function renderTable(el, rows, cols) {
+    var box = $(el);
+    if (!rows || !rows.length) { box.innerHTML = '<tr><td class="dim">暂无数据</td></tr>'; return; }
+    var head = cols.map(function (c) { return "<th>" + esc(c[1]) + "</th>"; }).join("");
+    var body = rows.map(function (r) {
+      return "<tr>" + cols.map(function (c) {
+        var v = r[c[0]];
+        return c[2] === "num" ? '<td class="num">' + fmtNum(v) + "</td>" : "<td>" + esc(v) + "</td>";
+      }).join("") + "</tr>";
+    }).join("");
+    box.innerHTML = "<tr>" + head + "</tr>" + body;
+  }
+
+  function renderLogs(logs) {
+    var box = $("tabLog");
+    if (!logs || !logs.length) { box.innerHTML = '<div class="dim">暂无批次日志</div>'; return; }
+    box.innerHTML = logs.map(function (L) {
+      var st = L.stats || {};
+      var fsrc = (st.failed_sources || []).length
+        ? '<div class="lc"><span class="warn">失败源：' + esc((st.failed_sources || []).join("、")) + "</span></div>" : "";
+      var budgetLine = "";
+      if (st.budget_stop && st.budget_stop !== "ok") {
+        budgetLine = '<div class="lc"><span class="warn">预算熔断：' +
+          (st.budget_stop === "hard" ? "硬停（该轮未调用任何模型）" : "软停（深加工跳过 " +
+            (st.deep_skipped_budget || 0) + " 条）") + "</span></div>";
+      }
+      return '<div class="log ' + esc(L.status || "") + '">' +
+        '<div class="lh"><b>#' + L.id + '</b><span class="bdg ' + esc(L.status || "") + '">' +
+        esc(ST_NAME[L.status] || L.status) + "</span>" +
+        '<span class="dim">' + esc(L.trigger || "") + " · " + esc(L.started_at || "") + " → " +
+        esc(L.finished_at || "—") + "</span></div>" +
+        '<div class="lc">抓取 ' + (st.fetched || 0) + " · 去重后 " + (st.after_dedup || 0) +
+        " · 粗筛 ok " + (st.coarse_ok || 0) + " / 跳过 " + (st.coarse_skipped || 0) +
+        " / 失败 " + (st.coarse_failed || 0) + " · 深加工 ok " + (st.deep_ok || 0) +
+        " / rejected " + (st.deep_rejected || 0) + " / 失败 " + (st.deep_failed || 0) +
+        "（候选 " + (st.deep_candidates || 0) + "，候选池剩 " + (st.deep_skipped || 0) + "）</div>" +
+        '<div class="lc">花费 ¥' + fmtNum(st.cost) + " · 耗时 " + (st.duration_s == null ? "—" : Math.round(st.duration_s) + "s") +
+        " · 源 ok " + (st.sources_ok || 0) + " / 失败 " + (st.sources_failed || 0) + "</div>" +
+        budgetLine + fsrc + "</div>";
+    }).join("");
+  }
+
+  async function load() {
+    var tasks = [
+      fetch("/api/budget").then(function (r) { return r.json(); }).catch(function () { return null; }),
+      fetch("/api/cost?days=30").then(function (r) { return r.json(); }).catch(function () { return null; }),
+      fetch("/api/logs?limit=50").then(function (r) { return r.json(); }).catch(function () { return null; })
+    ];
+    var res = await Promise.all(tasks);
+    if (res[0]) renderBudget(res[0]);
+    if (res[1]) {
+      $("cMonth").textContent = fmtNum(res[1].month_total, 4);
+      $("cTotal").textContent = fmtNum(res[1].total, 4);
+      renderBars(res[1].by_day);
+      renderTable("tStage", res[1].by_stage, [["stage", "阶段", ""], ["calls", "调用数", "num"], ["cost", "花费(元)", "num"]]);
+      renderTable("tModel", res[1].by_model, [["model", "模型", ""], ["calls", "调用数", "num"], ["cost", "花费(元)", "num"]]);
+      if (res[1].budget && res[1].budget.mode === "ok" && res[0]) renderBudget(res[1].budget);
+    }
+    if (res[2]) renderLogs(res[2].logs);
+    window.__cost = res;   // 供外部断言
+  }
+
+  Array.prototype.forEach.call(document.querySelectorAll(".tab"), function (t) {
+    t.onclick = function () {
+      Array.prototype.forEach.call(document.querySelectorAll(".tab"), function (x) { x.classList.remove("on"); });
+      t.classList.add("on");
+      $("tabCost").style.display = t.getAttribute("data-t") === "cost" ? "" : "none";
+      $("tabLog").style.display = t.getAttribute("data-t") === "log" ? "" : "none";
+    };
+  });
+
+  load();
+})();
+</script>
+</body>
+</html>

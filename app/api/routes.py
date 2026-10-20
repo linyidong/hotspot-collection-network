@@ -6,6 +6,7 @@
 import json
 import threading
 import time
+from datetime import datetime
 
 from fastapi import Body, FastAPI
 from fastapi.responses import FileResponse, JSONResponse
@@ -509,6 +510,74 @@ def create_app() -> FastAPI:
                 "LEFT JOIN sources s ON s.id=i.source_id "
                 "ORDER BY f.created_at DESC LIMIT ?", (limit,)).fetchall()
             return {"favorites": [dict(r) for r in rows]}
+        finally:
+            conn.close()
+
+    # ---------------- T10：预算 / 成本 / 日志 ----------------
+    @app.get("/api/budget")
+    def budget_status():
+        """预算熔断状态：本月预算/已花费/剩余/比例/模式（ok/soft/hard）。"""
+        from .. import budget
+        return budget.status()
+
+    @app.get("/api/cost")
+    def cost_summary(days: int = 30):
+        """成本分析：最近 days 天按日汇总 + 本月按阶段/模型汇总，本月合计与预算状态。"""
+        from .. import budget
+        days = max(1, min(int(days), 365))
+        month_start = datetime.now().strftime("%Y-%m-01 00:00:00")
+        conn = db.get_conn()
+        try:
+            by_day = [dict(r) for r in conn.execute(
+                "SELECT substr(created_at,1,10) AS date, ROUND(SUM(cost),4) AS cost "
+                "FROM llm_calls WHERE created_at >= datetime('now','localtime', ?) "
+                "GROUP BY date ORDER BY date", (f"-{days} days",)).fetchall()]
+            by_stage = [dict(r) for r in conn.execute(
+                "SELECT COALESCE(stage,'—') AS stage, COUNT(*) AS calls, "
+                "ROUND(SUM(cost),4) AS cost FROM llm_calls "
+                "WHERE created_at >= ? GROUP BY stage ORDER BY cost DESC",
+                (month_start,)).fetchall()]
+            by_model = [dict(r) for r in conn.execute(
+                "SELECT COALESCE(model,'—') AS model, COUNT(*) AS calls, "
+                "ROUND(SUM(cost),4) AS cost FROM llm_calls "
+                "WHERE created_at >= ? GROUP BY model ORDER BY cost DESC",
+                (month_start,)).fetchall()]
+            total_row = conn.execute(
+                "SELECT ROUND(COALESCE(SUM(cost),0),4) c FROM llm_calls").fetchone()
+            month_row = conn.execute(
+                "SELECT ROUND(COALESCE(SUM(cost),0),4) c FROM llm_calls "
+                "WHERE created_at >= ?", (month_start,)).fetchone()
+            month_total = month_row["c"]
+        finally:
+            conn.close()
+        return {"days": days, "month_total": month_total,
+                "total": total_row["c"],
+                "budget": budget.status(),
+                "by_day": by_day, "by_stage": by_stage, "by_model": by_model}
+
+    @app.get("/api/logs")
+    def logs(limit: int = 50):
+        """批次日志摘要：每轮含抓取/去重/粗筛/深加工/花费/耗时/失败源。"""
+        limit = max(1, min(int(limit), 200))
+        conn = db.get_conn()
+        try:
+            rows = conn.execute(
+                "SELECT id, started_at, finished_at, trigger, status, stats_json "
+                "FROM batches ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+            out = []
+            for r in rows:
+                stats = {}
+                if r["stats_json"]:
+                    try:
+                        stats = json.loads(r["stats_json"])
+                    except (ValueError, TypeError):
+                        stats = {}
+                out.append({
+                    "id": r["id"], "started_at": r["started_at"],
+                    "finished_at": r["finished_at"], "trigger": r["trigger"],
+                    "status": r["status"], "stats": stats,
+                })
+            return {"logs": out, "count": len(out)}
         finally:
             conn.close()
 
