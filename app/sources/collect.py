@@ -12,6 +12,7 @@ from .. import db
 from ..config import settings
 from .registry import SOURCES
 from .rss_bridge import RssBridgeSource
+from .sina import SinaSource
 from .wallstcn import WallStcnSource
 
 # 统一的单源超时（任务书：20s）
@@ -41,6 +42,8 @@ def _build_source(spec, proxy_mode: str, proxy_url: str):
     """按注册表定义构造源实例。type=api 直连，type=bridge 走本地桥。"""
     proxy = proxy_url if (proxy_mode == "proxy" and proxy_url) else None
     if spec.type == "api":
+        if spec.id == "sina":
+            return SinaSource(spec, proxy_url=proxy, timeout=FETCH_TIMEOUT)
         return WallStcnSource(spec, proxy_url=proxy, timeout=FETCH_TIMEOUT)
     return RssBridgeSource(spec, bridge_port=settings.rss_bridge_port,
                            timeout=FETCH_TIMEOUT)

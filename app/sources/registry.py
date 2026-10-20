@@ -50,6 +50,9 @@ SOURCES = [
     SourceSpec(
         id="wscn-rss", name="华尔街见闻RSS", type="bridge",
         path="/wallstreetcn/live", url="https://wallstreetcn.com/live"),
+    SourceSpec(
+        id="sina", name="新浪财经7×24", type="api",
+        path="sina", url="https://finance.sina.com.cn/7x24/"),
 ]
 
 

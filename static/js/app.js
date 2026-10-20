@@ -389,18 +389,43 @@
   bindChips($("opStage"), "stage");
   bindChips($("opGrade"), "grade");
 
-  // ===== 采集来源列表（左抽屉）=====
+  // ===== 采集来源列表（左抽屉）+ 逐源 直连/代理 开关 =====
+  var DOMESTIC = { "cls": 1, "eastmoney": 1, "ths": 1, "jin10": 1, "sina": 1,
+                   "wscn-a-stock": 1, "wscn-rss": 1 };
   function renderSources() {
     var box = $("srcList");
     if (!box) return;
     if (!SOURCES || !SOURCES.length) { box.innerHTML = '<div class="srcrow dim">暂无来源数据</div>'; return; }
     box.innerHTML = SOURCES.map(function (s) {
       var cls = s.status === "ok" ? "ok" : (s.status === "never" ? "" : "err");
-      return '<div class="srcrow ' + cls + '" title="' + esc(s.name) + '（' +
-        (s.status === "ok" ? "正常" : "异常") + '）">' +
+      var isProxy = s.proxy_mode === "proxy";
+      var region = DOMESTIC[s.id] ? "国内" : "国际";
+      return '<div class="srcrow ' + cls + '" data-sid="' + esc(s.id) + '" title="' +
+        esc(s.name) + "（" + (s.status === "ok" ? "正常" : "异常") + "）" + '">' +
         '<span class="d"></span><span class="n">' + esc(s.name) + '</span>' +
-        '<span class="c">' + (s.last_count || 0) + '</span></div>';
+        '<span class="rg">' + region + '</span>' +
+        '<button class="pm' + (isProxy ? " on" : "") + '" data-pm="' +
+        (isProxy ? "direct" : "proxy") + '" title="点击切换为' +
+        (isProxy ? "直连" : "代理") + '">' + (isProxy ? "代理" : "直连") + "</button>" +
+        '<span class="c">' + (s.last_count || 0) + "</span></div>";
     }).join("");
+    Array.prototype.forEach.call(box.querySelectorAll("button.pm"), function (b) {
+      b.onclick = function (ev) {
+        ev.stopPropagation();
+        var row = b.closest(".srcrow");
+        var sid = row.getAttribute("data-sid");
+        var mode = b.getAttribute("data-pm");
+        b.disabled = true;
+        b.textContent = "…";
+        fetch("/api/sources/" + encodeURIComponent(sid), {
+          method: "PUT", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ proxy_mode: mode })
+        }).then(function (r) { return r.json(); }).then(function (j) {
+          if (!j.ok) { toast("切换失败：" + (j.error || "未知")); }
+          return fetchAll();
+        }).catch(function () { b.disabled = false; toast("切换失败：网络错误"); });
+      };
+    });
   }
 
   // ===== AI 建议解析 =====
@@ -408,7 +433,8 @@
     var tt = String(x.title || "").replace(/\s+/g, " ").trim();
     return '<div class="sug"><div class="st">潜力 ' + (x.potential || 0) + " · " +
       esc(x.category || "未分类") + (x.country ? " · " + esc(x.country) : "") + "</div>" +
-      '<div class="ti" title="' + esc(tt) + '">' + esc(tt) + "</div>" +
+      '<div class="ti" title="' + esc(tt) + '"><a href="' + esc(x.url || "#") +
+      '" target="_blank" rel="noopener">' + esc(tt) + "</a></div>" +
       '<div class="ac"><span class="dim">' + esc(x.source || "") + " · " + fmtTime(x.published_at) + "</span>" +
       '<button data-sug="' + x.id + '">AI解析</button></div></div>';
   }
