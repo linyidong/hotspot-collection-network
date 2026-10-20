@@ -4,10 +4,11 @@
     /api/health 携带 bridge.ok（RSS 桥状态，挂了自动重启）；/api/sources 返回 8 源状态。
     关键依赖：fastapi、app.config、app.db、app.bridge、app.sources.registry。"""
 import json
+import threading
 import time
 
 from fastapi import Body, FastAPI
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from .. import db
@@ -162,6 +163,28 @@ def create_app() -> FastAPI:
             return {"batches": out}
         finally:
             conn.close()
+
+    @app.post("/api/run")
+    def run_now(deep_limit: int = Body(default=None, embed=True)):
+        """手动触发一轮（后台线程执行，立即返回）。已有轮次在跑 → 409。"""
+        from .. import scheduler as sched
+        if sched.STATE["running"]:
+            return JSONResponse(
+                status_code=409,
+                content={"accepted": False,
+                         "reason": "上一轮尚未结束，请等它跑完（或稍后重试）",
+                         "current_batch_id": sched.STATE["current_batch_id"]})
+        threading.Thread(target=sched.run_round, args=("手动", deep_limit),
+                         daemon=True).start()
+        return {"accepted": True, "trigger": "手动",
+                "deep_limit": deep_limit,
+                "message": "已开始本轮，进度见 /api/run/status"}
+
+    @app.get("/api/run/status")
+    def run_status():
+        """调度与轮次状态：是否在跑、当前批次、上次完成、下次计划。"""
+        from .. import scheduler as sched
+        return dict(sched.STATE)
 
     @app.get("/api/leads")
     def leads(batch: str = "latest", limit: int = 50):

@@ -176,11 +176,11 @@ def coarse_one(item, batch_id: int) -> str:
         conn.close()
 
 
-def _last_call_cost(conn, batch_id: int) -> float:
-    """取本批最近一次粗筛调用成本（刚由 chat() 写入）。"""
+def _last_call_cost(conn, batch_id: int, stage: str = "coarse") -> float:
+    """取本批最近一次指定 stage 调用成本（刚由 chat() 写入）。"""
     row = conn.execute(
-        "SELECT cost FROM llm_calls WHERE batch_id=? AND stage='coarse' "
-        "ORDER BY id DESC LIMIT 1", (batch_id,)).fetchone()
+        "SELECT cost FROM llm_calls WHERE batch_id=? AND stage=? "
+        "ORDER BY id DESC LIMIT 1", (batch_id, stage)).fetchone()
     return row["cost"] if row else 0.0
 
 
@@ -212,13 +212,15 @@ def deep_one(item, coarse_res: dict, batch_id: int) -> dict:
                 text = chat(DEEP_MODEL, user, batch_id, stage="deep",
                             system_prompt=DEEP_PROMPT, max_tokens=DEEP_MAX_TOKENS,
                             timeout=DEEP_TIMEOUT, thinking=False, conn=conn)
+                conn.commit()   # 调用即记账：立即持久化本次 deep 调用（含失败，chat 已写 cost=0 行）
                 card = parse_deep_json(text)
                 if card is None:
                     raise ValueError("深加工输出无法解析为 JSON")
                 ok, reasons = validate_deep_card(card)
                 return {"status": "ok" if ok else "rejected", "card": card,
-                        "reasons": reasons, "cost": _last_call_cost(conn, batch_id)}
+                        "reasons": reasons, "cost": _last_call_cost(conn, batch_id, "deep")}
             except Exception as exc:
+                conn.commit()
                 last_err = _human_last_error(exc)
                 if attempt < DEEP_RETRIES:
                     time.sleep(1.0 + attempt)
@@ -231,9 +233,10 @@ def deep_one(item, coarse_res: dict, batch_id: int) -> dict:
 # ---------------------------------------------------------------------------
 # 单轮流水线
 # ---------------------------------------------------------------------------
-def run_once(deep_limit: int = None) -> dict:
+def run_once(deep_limit: int = None, trigger: str = "手动") -> dict:
     """完整一轮：建批次 → 采集 → 落库 → 去重 → 粗筛 → 深加工 → 记账 → 收尾。
-    deep_limit：本轮深加工上限（None 用默认 10；0 表示跳过深加工）。返回 stats。"""
+    deep_limit：本轮深加工上限（None 用默认 10；0 表示跳过深加工）。
+    trigger：批次来源，'手动' 或 '自动'。返回 stats。"""
     t0 = time.time()
     conn = db.get_conn()
     stats = {"fetched": 0, "after_dedup": 0, "coarse_ok": 0, "coarse_skipped": 0,
@@ -245,7 +248,7 @@ def run_once(deep_limit: int = None) -> dict:
         # 1) 建批次
         batch_id = conn.execute(
             "INSERT INTO batches(started_at, trigger, status) VALUES(?,?, 'running')",
-            (_now(), "手动")).lastrowid
+            (_now(), trigger)).lastrowid
         conn.commit()
 
         # 2) 采集（含 sources 状态回写）

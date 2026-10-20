@@ -30,6 +30,7 @@ from app.sources.registry import SOURCES
 
 FETCH_ONCE = "--fetch-once" in sys.argv
 RUN_ONCE = "--run-once" in sys.argv
+NO_SCHEDULER = "--no-scheduler" in sys.argv
 
 # --deep-limit N：本轮深加工上限（T5；默认取 config.DEEP_LIMIT_PER_RUN）
 DEEP_LIMIT = None
@@ -123,7 +124,7 @@ if FETCH_ONCE or RUN_ONCE:
         print(f"成功源 {n_ok}/{len(SOURCES)}。失败源的 last_error 已写入 sources 表。")
     else:
         from app.pipeline import run_once
-        st = run_once(deep_limit=DEEP_LIMIT)
+        st = run_once(deep_limit=DEEP_LIMIT, trigger="手动")
         print("-" * 56)
         print(f"批次      : #{st['batch_id']}（{st['status']}）")
         print(f"抓取数    : {st['fetched']} 条（源 ok {st['sources_ok']} / 失败 {st['sources_failed']}）")
@@ -159,8 +160,26 @@ from app.api.routes import create_app
 if __name__ == "__main__":
     server = uvicorn.Server(uvicorn.Config(create_app(), host="127.0.0.1",
                                            port=_port, log_level="info"))
+    from app import scheduler as sched
+    # 启动清理：上次被强杀留下的 running 批次，标记为 failed（避免僵尸批次）
+    try:
+        _c = get_conn()
+        _n = _c.execute(
+            "UPDATE batches SET status='failed', finished_at=datetime('now','localtime') "
+            "WHERE status='running' AND finished_at IS NULL").rowcount
+        _c.commit()
+        _c.close()
+        if _n:
+            print(f"[启动] 清理了 {_n} 个上次中断的批次（标记 failed）", flush=True)
+    except Exception as _e:
+        print(f"[启动] 清理僵尸批次失败：{_e}", flush=True)
+    if not NO_SCHEDULER:
+        sched.start(deep_limit=DEEP_LIMIT)
+    else:
+        print("[调度] 已按 --no-scheduler 关闭（仅手动触发）", flush=True)
     try:
         server.run()
     finally:
+        sched.shutdown()
         bridge.stop()
         print("RSS 桥已随主服务一并关闭。")
