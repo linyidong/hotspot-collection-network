@@ -42,6 +42,7 @@
     } catch (e) { /* 参数非法时忽略 */ }
     return null;
   }
+  var nightMode = 0, nightTarget = 0;
   var sunOverride = parseSunOverride();
   var sunDir = sunOverride || computeSun();
   var sunTimer = 0;
@@ -187,7 +188,7 @@
         uDay: { value: baseTex }, uNight: { value: lightTex },
         uNormal: { value: normalTex }, uSpec: { value: specTex },
         uDayMul: { value: 1.25 }, uNightMul: { value: 2.2 }, uAmb: { value: 0.10 },
-        uRelief: { value: 0.85 }
+        uRelief: { value: 0.85 }, uNightMode: { value: 0 }
       },
       vertexShader: `
         varying vec2 vUv; varying vec3 vN; varying vec3 vV; varying vec3 vP;
@@ -201,7 +202,7 @@
       fragmentShader: `
         uniform vec3 uSun;
         uniform sampler2D uDay, uNight, uNormal, uSpec;
-        uniform float uDayMul, uNightMul, uAmb, uRelief;
+        uniform float uDayMul, uNightMul, uAmb, uRelief, uNightMode;
         varying vec2 vUv; varying vec3 vN; varying vec3 vV; varying vec3 vP;
         void main() {
           vec3 N = normalize(vN);
@@ -235,6 +236,21 @@
           float rim = pow(1.0 - max(dot(N, V), 0.0), 3.0);
           col += vec3(0.16, 0.34, 0.62) * rim * 0.55;
 
+          // ---- 夜间模式：黑球 + 大陆暗填充 + 青色海岸线 + 城市灯光 ----
+          if (uNightMode > 0.001) {
+            float luma = dot(dayTex, vec3(0.299, 0.587, 0.114));
+            float land = smoothstep(0.045, 0.135, luma);
+            float w = max(fwidth(land) * 1.2, 0.004);
+            float coast = smoothstep(0.5 - w, 0.5, land) - smoothstep(0.5, 0.5 + w, land);
+            vec3 lights = texture2D(uNight, vUv).rgb;
+            vec3 nCol = vec3(0.010, 0.013, 0.020)
+                      + land * vec3(0.026, 0.036, 0.052)
+                      + lights * 2.5
+                      + vec3(0.14, 0.62, 0.92) * coast * 1.25
+                      + vec3(0.06, 0.18, 0.38) * rim * 0.9;
+            col = mix(col, nCol, uNightMode);
+          }
+
           gl_FragColor = vec4(col, 1.0);
         }`
     });
@@ -251,7 +267,7 @@
     var cloudMat = new THREE.ShaderMaterial({
       uniforms: {
         uSun: { value: sunDir.clone() }, uCloud: { value: cloudTex },
-        uMul: { value: 0.78 }, uDrift: { value: 0 }
+        uMul: { value: 0.78 }, uDrift: { value: 0 }, uNight: { value: 0 }
       },
       transparent: true, depthWrite: false,
       vertexShader: `
@@ -261,14 +277,15 @@
           gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
         }`,
       fragmentShader: `
-        uniform sampler2D uCloud; uniform vec3 uSun; uniform float uMul, uDrift;
+        uniform sampler2D uCloud; uniform vec3 uSun; uniform float uMul, uDrift, uNight;
         varying vec2 vUv; varying vec3 vN;
         void main() {
           float a = texture2D(uCloud, vec2(fract(vUv.x + uDrift), vUv.y)).a;
           float ndl = dot(normalize(vN), uSun);
           float lit = clamp(ndl * 1.25 + 0.12, 0.0, 1.0);
           vec3 c = mix(vec3(0.16, 0.22, 0.36), vec3(1.0, 1.0, 1.0), lit);
-          gl_FragColor = vec4(c, a * uMul * smoothstep(-0.15, 0.25, ndl) + a * uMul * 0.25);
+          float cloudA = a * uMul * smoothstep(-0.15, 0.25, ndl) + a * uMul * 0.25;
+          gl_FragColor = vec4(c, cloudA * (1.0 - uNight * 0.92));
         }`
     });
     var clouds = new THREE.Mesh(new THREE.SphereGeometry(1.006, 96, 64), cloudMat);
@@ -281,6 +298,15 @@
     clouds2.rotation.y = Math.PI * 0.6; clouds2.rotation.x = 0.12;
     clouds2.renderOrder = 0; globe.add(clouds2);
     refreshSun();
+    try {
+      var saved = localStorage.getItem("hcn_night");
+      var hr = new Date().getHours();
+      nightTarget = saved === null ? ((hr >= 19 || hr < 6) ? 1 : 0) : (saved === "1" ? 1 : 0);
+      nightMode = nightTarget;
+      if (baseMat) baseMat.uniforms.uNightMode.value = nightMode;
+      if (cloudMat) cloudMat.uniforms.uNight.value = nightMode;
+      if (cloudMat2) cloudMat2.uniforms.uNight.value = nightMode;
+    } catch (e) { /* 忽略 */ }
 
 
     // 经纬网格（L3，透明度降到 0.06，仅空间参照）
@@ -443,6 +469,13 @@
       });
 
       // 云层缓慢漂移 + 大气呼吸（±8%）
+      // 夜间模式平滑过渡
+      if (Math.abs(nightTarget - nightMode) > 0.002) {
+        nightMode += (nightTarget - nightMode) * 0.06;
+        if (baseMat) baseMat.uniforms.uNightMode.value = nightMode;
+        if (cloudMat) cloudMat.uniforms.uNight.value = nightMode;
+        if (cloudMat2) cloudMat2.uniforms.uNight.value = nightMode;
+      }
       // 扫描带旋转 + 星芒呼吸旋转
       if (window.__sweep) window.__sweep.rotation.y += 0.012;
       if (window.__sweep2) window.__sweep2.rotation.y -= 0.009;
@@ -679,7 +712,7 @@
         "拉各斯": [6.5, 3.4], "孟买": [19.1, 72.9], "东京": [35.7, 139.7],
         "悉尼": [-33.9, 151.2], "约翰内斯堡": [-26.2, 28.0], "洛杉矶": [34.1, -118.2], "布宜诺斯艾利斯": [-34.6, -58.4],
         "开普敦": [-33.9, 18.4], "圣地亚哥": [-33.4, -70.7], "珀斯": [-31.9, 115.9],
-        "奥克兰": [-36.8, 174.8], "毛里求斯": [-20.2, 57.5]
+        "奥克兰": [-36.8, 174.8], "毛里求斯": [-20.2, 57.5], "南极": [-71.0, 20.0]
       };
       var ROUTES = [
         ["北京", "伦敦"], ["北京", "纽约"], ["新加坡", "迪拜"], ["孟买", "拉各斯"],
@@ -688,7 +721,9 @@
         ["布宜诺斯艾利斯", "开普敦"], ["悉尼", "圣地亚哥"],
         ["圣保罗", "拉各斯"], ["约翰内斯堡", "珀斯"],
         ["雅加达", "珀斯"], ["奥克兰", "圣地亚哥"],
-        ["孟买", "毛里求斯"], ["新加坡", "珀斯"]
+        ["孟买", "毛里求斯"], ["新加坡", "珀斯"],
+        ["圣地亚哥", "开普敦"], ["布宜诺斯艾利斯", "南极"],
+        ["开普敦", "南极"], ["珀斯", "南极"]
       ];
       ROUTES.forEach(function (rt, idx) {
         var A = CITY[rt[0]], B = CITY[rt[1]];
@@ -737,7 +772,12 @@
         [-31.9, 115.9], [-27.5, 153.0], [-37.8, 145.0], [-36.9, 174.8],
         [-43.5, 172.6], [-22.6, 17.1], [-29.6, 30.4], [-33.0, 27.9],
         [-17.8, 31.0], [-4.3, 15.3], [-6.8, 39.3], [-20.2, 57.5],
-        [-0.5, 117.2], [-8.6, 125.6], [-6.2, 106.8]
+        [-0.5, 117.2], [-8.6, 125.6], [-6.2, 106.8],
+        // —— 正下方：南大西洋 / 南极圈 ——
+        [-30.0, -15.0], [-38.0, -25.0], [-45.0, -30.0], [-22.0, -10.0],
+        [-54.8, -36.5], [-51.7, -57.9], [-33.7, -78.8], [-42.0, 14.0],
+        [-48.0, 20.0], [-60.0, 20.0], [-65.0, 0.0], [-69.0, 39.0],
+        [-71.0, 90.0], [-74.0, 120.0], [-77.0, 166.0], [-71.3, -179.0]
       ];
       NODES.forEach(function (nz, nidx) {
         var pos = latLon(nz[0], nz[1], 1.015);
@@ -798,6 +838,15 @@
 
   window.EARTH = {
     setDots: setDots,
+    setNight: function (v) {
+      nightTarget = v ? 1 : 0; nightMode = nightTarget;
+      if (baseMat) baseMat.uniforms.uNightMode.value = nightMode;
+      if (cloudMat) cloudMat.uniforms.uNight.value = nightMode;
+      if (cloudMat2) cloudMat2.uniforms.uNight.value = nightMode;
+      try { localStorage.setItem("hcn_night", nightTarget ? "1" : "0"); } catch (e) {}
+      return nightTarget;
+    },
+    night: function () { return nightTarget; },
     ok: function () { return webgl; },
     sun: function () { return sunDir.toArray(); }
   };

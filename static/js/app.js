@@ -717,6 +717,23 @@
     restoreSize();
   }
   initResize();
+  // 夜间模式切换（状态在 earth.js，这里只做按钮与文案）
+  var nightBtn = $("btnNight");
+  function syncNightLabel() {
+    if (!nightBtn || !window.EARTH || !window.EARTH.night) return;
+    var on = window.EARTH.night() === 1;
+    nightBtn.textContent = on ? "白天" : "夜间";
+    nightBtn.classList.toggle("on", on);
+  }
+  if (nightBtn) {
+    nightBtn.onclick = function () {
+      if (!window.EARTH || !window.EARTH.setNight) return;
+      window.EARTH.setNight(window.EARTH.night() ? 0 : 1);
+      syncNightLabel();
+    };
+    setTimeout(syncNightLabel, 300);
+  }
+
   var resetBtn = $("resetLayout");
   if (resetBtn) {
     resetBtn.onclick = function () {
