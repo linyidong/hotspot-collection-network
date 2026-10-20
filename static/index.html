@@ -1,50 +1,150 @@
 <!DOCTYPE html>
-<!-- 模块：T2 骨架占位首页。职责：深色空壳页，调用 /api/health 显示服务状态；
-     未配置 DEEPSEEK_API_KEY 时给出中文指引（不崩溃）。零外部依赖。 -->
+<!-- 模块：T7 实时数据 3D 大屏（生产首页）。职责：顶栏状态/源灯/一键采集 + 左抽屉筛选 + three.js 3D 地球
+     （线索按国家打点、按 stage 配色）+ 右侧 2×3 面板（新增/A·B级/S1/S3/更早/已排除）。
+     数据全部来自真实接口，60s 轮询，采集中 5s 轮询。本地 vendor three.js，零 CDN。 -->
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<title>热点采集网络 · 骨架</title>
+<title>热点采集网络 · 实时大屏</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-html,body{height:100%}
-body{background:#060a12;color:#cdd9ee;font:14px/1.7 "Microsoft YaHei","PingFang SC",Arial,sans-serif;display:flex;align-items:center;justify-content:center}
-.card{width:min(560px,90vw);background:rgba(255,255,255,.04);border:1px solid rgba(120,180,255,.18);border-radius:12px;padding:32px 36px}
-h1{font-size:20px;color:#eaf2ff;margin-bottom:6px;letter-spacing:1px}
-.tag{display:inline-block;font-size:11px;color:#f5c542;border:1px solid rgba(245,197,66,.55);padding:1px 8px;border-radius:3px;margin-bottom:18px}
-.line{font-size:15px;color:#9fd8ff;margin-bottom:20px}
-.meta{font-size:12px;color:#8fa3c4;margin-bottom:8px}
-.meta b{color:#cfe3ff;font-weight:600}
-.warn{margin-top:14px;padding:12px 14px;border:1px solid rgba(245,166,35,.45);background:rgba(245,166,35,.08);border-radius:8px;font-size:13px;color:#f5c542}
-.warn a{color:#35d0e8;text-decoration:none}
-.ok{color:#2ecc8f}
-.status{font-size:12px;color:#7c8aa5;margin-top:18px}
+html,body{overflow-x:hidden}
+body{background:#060a12;color:#cdd9ee;font:13px/1.5 "Microsoft YaHei","PingFang SC",Arial,sans-serif;min-width:1180px;display:flex;flex-direction:column;height:100vh}
+/* 顶栏 */
+header{height:44px;flex:none;display:flex;align-items:center;gap:14px;padding:0 14px;border-bottom:1px solid rgba(120,180,255,.18);background:linear-gradient(180deg,rgba(28,58,106,.5),rgba(6,10,18,0))}
+header h1{font-size:16px;color:#eaf2ff;letter-spacing:1px;white-space:nowrap}
+.sub{font-size:10px;color:#f5c542;border:1px solid rgba(245,197,66,.55);padding:0 5px;border-radius:3px;white-space:nowrap}
+#stat{margin-left:auto;font-size:12px;color:#2ecc8f;white-space:nowrap}
+#stat .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#2ecc8f;margin-right:5px;animation:bl 1.4s infinite}
+@keyframes bl{50%{opacity:.25}}
+#clk{font-size:12px;color:#9fb4d8;font-family:Consolas,monospace;white-space:nowrap}
+.src{display:flex;gap:4px;align-items:center}
+.src i{width:9px;height:9px;border-radius:2px;cursor:default}
+.sg{background:#2ecc8f}.sr{background:#ff5b5b}
+#btn{padding:5px 14px;border:0;border-radius:4px;background:linear-gradient(90deg,#17b3c9,#2e8bf5);color:#fff;font-size:12px;cursor:pointer;white-space:nowrap}
+#btn:disabled{opacity:.45;cursor:default}
+.spend{font-size:12px;color:#8fa3c4;white-space:nowrap}
+#sfail{display:none;text-align:center;font-size:12px;color:#ffb020;background:rgba(245,166,35,.1);border-bottom:1px solid rgba(245,166,35,.3);padding:4px 0}
+#sfail.show{display:block}
+/* 主体 */
+main{flex:1;min-height:0;display:flex;gap:10px;padding:10px}
+/* 左抽屉 */
+#drw{width:220px;flex:none;background:rgba(255,255,255,.035);border:1px solid rgba(120,180,255,.14);border-radius:8px;display:flex;flex-direction:column;transition:width .2s;overflow:hidden}
+#drw.coll{width:36px}
+.dhd{height:32px;flex:none;display:flex;align-items:center;gap:6px;padding:0 8px;border-bottom:1px solid rgba(120,180,255,.12)}
+.dtt{font-size:12px;color:#9fb4d8;white-space:nowrap}
+#dtog{margin-left:auto;width:22px;height:22px;border:0;border-radius:4px;background:rgba(120,180,255,.15);color:#cfe3ff;cursor:pointer;font-size:14px}
+.dbody{flex:1;min-height:0;overflow:auto;padding:8px;display:flex;flex-direction:column;gap:10px}
+.dico{display:none;flex:1;flex-direction:column;align-items:center;gap:14px;padding-top:14px}
+#drw.coll .dbody{display:none}
+#drw.coll .dico{display:flex}
+.dico span{width:22px;height:22px;line-height:22px;text-align:center;border-radius:4px;background:rgba(120,180,255,.15);color:#9fb4d8;font-size:12px}
+.g-t{font-size:11px;color:#7c8aa5;margin-bottom:5px;white-space:nowrap}
+.g-t em{font-style:normal;color:#4a5878;font-size:10px}
+.opts{display:flex;flex-wrap:wrap;gap:5px}
+.op{font-size:11px;padding:2px 7px;border-radius:3px;border:1px solid rgba(120,180,255,.18);color:#9fb4d8;cursor:pointer;white-space:nowrap}
+.op.sel{border-color:#35d0e8;color:#eaf6ff;box-shadow:0 0 6px rgba(53,208,232,.4)}
+/* 中央 3D 地球 */
+#cen{flex:1;min-width:0;display:flex;flex-direction:column;gap:6px}
+#g3d{flex:1;min-height:0;position:relative}
+#g3d canvas{display:block;width:100%;height:100%}
+.dgl,.ovl{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:13px;color:#cdd9ee;text-align:center;display:none;background:rgba(22,40,72,.85);border:1px solid rgba(120,180,255,.3);border-radius:8px;padding:16px 22px;max-width:70%}
+.dgl.show,.ovl.show{display:block}
+.lg{flex:none;display:flex;gap:12px;justify-content:center;font-size:11px;color:#9fb4d8}
+.lg i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:4px;vertical-align:-1px}
+.i1{background:#4d9de0}.i2{background:#8a63f5}.i3{background:#f5a623}.i4{background:#2ecc8f}
+/* 右侧面板网格 2×3 */
+#grid{width:min(600px,34vw);flex:none;display:grid;grid-template-columns:1fr 1fr;grid-auto-rows:1fr;gap:10px;min-height:0}
+.panel{min-width:0;background:rgba(255,255,255,.035);border:1px solid rgba(120,180,255,.14);border-radius:8px;padding:7px;display:flex;flex-direction:column;min-height:0}
+.pt{flex:none;display:flex;align-items:center;justify-content:space-between;font-size:12px;color:#9fb4d8;margin-bottom:6px}
+.cnt{font-size:10px;color:#7c8aa5;margin-left:6px;font-family:Consolas,monospace}
+.bd{font-size:10px;padding:0 5px;border-radius:3px;white-space:nowrap}
+.bd.live{background:rgba(46,204,143,.18);color:#2ecc8f;border:1px solid rgba(46,204,143,.4)}
+.bd.wait{background:rgba(245,166,35,.15);color:#f5a623;border:1px solid rgba(245,166,35,.4)}
+.bd.na{background:rgba(107,122,148,.15);color:#7c8aa5;border:1px solid rgba(107,122,148,.4)}
+.pc{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;gap:6px}
+/* 线索卡 */
+.card{min-width:0;flex:1;background:rgba(22,40,72,.5);border:1px solid rgba(120,180,255,.12);border-left:3px solid #2e8bf5;border-radius:5px;padding:6px 8px}
+.card.s1{border-left-color:#4d9de0}.card.s2{border-left-color:#8a63f5}.card.s3{border-left-color:#f5a623}.card.s4{border-left-color:#2ecc8f}
+.card.off{border-left-color:#6b7a94;opacity:.6;background:rgba(60,72,92,.35)}
+.ch{display:flex;align-items:center;gap:5px;margin-bottom:4px}
+.st{font-size:10px;padding:0 4px;border-radius:3px;color:#06121f;white-space:nowrap}
+.st.s1{background:#4d9de0}.st.s2{background:#8a63f5}.st.s3{background:#f5a623}.st.s4{background:#2ecc8f}
+.tg{font-size:10px;color:#9fb4d8;border:1px solid rgba(159,180,216,.4);padding:0 4px;border-radius:3px;white-space:nowrap}
+.gr{font-size:10px;font-weight:700;width:15px;height:15px;line-height:15px;text-align:center;border-radius:3px;margin-left:auto;flex:none}
+.a{background:#ff5b5b;color:#fff}.b{background:#f5a623;color:#1a1205}.c{background:#5a6b85;color:#e6edf7}
+.fact{font-size:11px;color:#e6efff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:3px}
+.next{font-size:10px;color:#35d0e8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:3px}
+.cf{display:flex;justify-content:space-between;gap:6px;font-size:10px;color:#7c8aa5}
+.ex{color:#ffb020}
+.emp{padding:14px 8px;font-size:11px;color:#7c8aa5;text-align:center;line-height:1.6}
+/* 底栏 */
+footer{height:28px;flex:none;display:flex;align-items:center;justify-content:center;gap:18px;font-size:11px;color:#7c8aa5;border-top:1px solid rgba(120,180,255,.12);white-space:nowrap}
+footer b{color:#9fb4d8}
+/* 提示条 */
+#toast{position:fixed;top:52px;left:50%;transform:translateX(-50%);background:rgba(22,40,72,.95);border:1px solid rgba(53,208,232,.6);color:#eaf6ff;padding:8px 16px;border-radius:6px;font-size:12px;display:none;z-index:99;max-width:70%}
+#toast.show{display:block}
 </style>
 </head>
 <body>
-<div class="card">
+<header>
   <h1>热点采集网络</h1>
-  <span class="tag">T2 骨架 · 示例占位页</span>
-  <div class="line">T2 骨架已就绪，大屏在 T7 实现</div>
-  <div class="meta">服务状态：<b id="st">加载中…</b></div>
-  <div class="meta">版本：<b id="ver">-</b> ｜ 数据库表：<b id="tbl">-</b> ｜ API Key：<b id="key">-</b> ｜ 运行时长：<b id="up">-</b></div>
-  <div id="warn"></div>
-  <div class="status">提示：完整大屏（地球/线索卡/实时刷新）将在 T7 实现，本页仅验证服务与数据库骨架。</div>
-</div>
-<script>
-fetch("/api/health").then(r=>r.json()).then(d=>{
-  const $=i=>document.getElementById(i);
-  $("st").textContent=d.status==="ok"?"正常 ✔":"异常";$("st").className=d.status==="ok"?"ok":"";
-  $("ver").textContent="v"+d.version;
-  $("tbl").textContent=d.db.tables+"/8";
-  $("key").textContent=d.key_configured?"已配置":"未配置";
-  $("up").textContent=d.uptime_seconds+"s";
-  if(!d.key_configured){
-    $("warn").innerHTML='<div class="warn">尚未配置 DeepSeek API Key，功能将受限。<br>怎么办：① 到 <a href="https://platform.deepseek.com" target="_blank" rel="noopener">platform.deepseek.com → API Keys</a> 获取；② 在项目根目录把 <b>.env.example</b> 复制为 <b>.env</b>，填入 DEEPSEEK_API_KEY；③ 重启 <b>python run.py</b>。</div>';
-  }
-}).catch(e=>{
-  document.getElementById("warn").innerHTML='<div class="warn">无法连接后端 /api/health，请确认服务已启动（python run.py）。</div>';
-});
-</script>
+  <span class="sub">实时数据 · 3D 大屏</span>
+  <span id="stat"><span class="dot"></span>加载中…</span>
+  <span class="spend" id="spend">最新批次 ¥—</span>
+  <span id="clk"></span>
+  <span class="src" id="srcs"></span>
+  <span class="spend" id="next">下一轮 —</span>
+  <span class="spend" id="ver">v—</span>
+  <button id="btn">一键采集</button>
+</header>
+<div id="sfail">全部数据源采集失败：请检查网络或源配置后重试</div>
+<main>
+  <aside id="drw">
+    <div class="dhd"><span class="dtt">图层 / 筛选</span><button id="dtog">‹</button></div>
+    <div class="dbody">
+      <div><div class="g-t">时间窗 <em>单选 · 决定「新增/更早」分区</em></div>
+        <div class="opts" id="opTime">
+          <span class="op">1小时</span><span class="op">3小时</span><span class="op sel">6小时</span><span class="op">24小时</span><span class="op">48小时</span><span class="op">7天</span><span class="op">全部</span>
+        </div></div>
+      <div><div class="g-t">阶段 <em>复选</em></div>
+        <div class="opts" id="opStage">
+          <span class="op sel" data-code="S1">S1 选品</span><span class="op sel" data-code="S2">S2 供应链</span><span class="op sel" data-code="S3">S3 交易结构</span><span class="op sel" data-code="S4">S4 客户开发</span>
+        </div></div>
+      <div><div class="g-t">行业 <em>复选 · 来自数据</em></div>
+        <div class="opts" id="inds"></div></div>
+      <div><div class="g-t">等级 <em>复选</em></div>
+        <div class="opts" id="opGrade"><span class="op sel">A</span><span class="op sel">B</span><span class="op sel">C</span></div></div>
+    </div>
+    <div class="dico"><span>时</span><span>段</span><span>业</span><span>级</span></div>
+  </aside>
+  <section id="cen">
+    <div id="g3d">
+      <div class="dgl" id="dgl">当前浏览器不支持 WebGL，无法显示 3D 地球。</div>
+      <div class="ovl" id="ovl"></div>
+    </div>
+    <div class="lg">
+      <span><i class="i1"></i>S1 选品</span><span><i class="i2"></i>S2 供应链</span>
+      <span><i class="i3"></i>S3 交易结构</span><span><i class="i4"></i>S4 客户开发</span>
+    </div>
+  </section>
+  <section id="grid">
+    <section class="panel"><div class="pt"><span id="tNew">新增（3小时）</span><span class="cnt" id="cNew">0</span><span class="bd live">实时</span></div><div class="pc" id="pNew"></div></section>
+    <section class="panel"><div class="pt"><span>A·B 级线索</span><span class="cnt" id="cA">0</span><span class="bd live">实时</span></div><div class="pc" id="pA"></div></section>
+    <section class="panel"><div class="pt"><span>S1 选品</span><span class="cnt" id="cS1">0</span><span class="bd wait">待审</span></div><div class="pc" id="pS1"></div></section>
+    <section class="panel"><div class="pt"><span>S3 交易结构</span><span class="cnt" id="cS3">0</span><span class="bd wait">待审</span></div><div class="pc" id="pS3"></div></section>
+    <section class="panel"><div class="pt"><span>更早</span><span class="cnt" id="cOld">0</span><span class="bd wait">待审</span></div><div class="pc" id="pOld"></div></section>
+    <section class="panel"><div class="pt"><span>已排除</span><span class="cnt" id="cEx">0</span><span class="bd na">已排除</span></div><div class="pc" id="pEx"></div></section>
+  </section>
+</main>
+<footer>
+  <span id="fver">v—</span><b>光点 <span id="fdots">0</span></b>
+  <span id="fsrc">数据源 —/8</span><span id="fbatch">最新批次 #—</span>
+  <span id="fdur">本轮 —</span><span>实时数据 · 60s 自动刷新</span>
+</footer>
+<div id="toast"></div>
+<script src="./static/vendor/three.min.js"></script>
+<script src="./static/js/earth.js"></script>
+<script src="./static/js/app.js"></script>
 </body>
 </html>
