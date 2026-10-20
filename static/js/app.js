@@ -575,9 +575,14 @@
     var dragEl = null;
     [].forEach.call(grid.children, function (p) {
       p.draggable = true;
+      // mousedown 时记录是否按在标题栏（dragstart 的 event.target 恒为 panel 本身，
+      // 不能靠 e.target.closest(".pt") 判断，否则拖动永远被 preventDefault 取消）
+      p.addEventListener("mousedown", function (e) {
+        p.__canDrag = !!e.target.closest(".pt");
+      });
       p.addEventListener("dragstart", function (e) {
         // 只有按住标题栏才能拖，避免干扰卡片内点击/选择
-        if (!e.target.closest(".pt")) { e.preventDefault(); return; }
+        if (!p.__canDrag) { e.preventDefault(); return; }
         dragEl = p;
         p.classList.add("dragging");
         e.dataTransfer.effectAllowed = "move";
