@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<!-- 模块：备忘录与收藏页。职责：列出我的备注（支持搜索）与收藏条目，点击进入详情。
+     数据来源：GET /api/notes?q= 、GET /api/favorites；零外部依赖。 -->
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>备忘录与收藏 · 热点采集网络</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#060a12;color:#cdd9ee;font:14px/1.7 "Microsoft YaHei","PingFang SC",Arial,sans-serif;min-height:100vh}
+header{display:flex;align-items:center;gap:12px;padding:12px 22px;border-bottom:1px solid rgba(120,180,255,.15)}
+h1{font-size:16px;color:#eaf2ff;letter-spacing:1px}
+.sub{font-size:10px;color:#f5c542;border:1px solid rgba(245,197,66,.55);padding:0 6px;border-radius:3px}
+header a{margin-left:auto;color:#7fd4ff;text-decoration:none;font-size:12px}
+main{max-width:1100px;margin:0 auto;padding:18px 22px 60px}
+.tabs{display:flex;gap:8px;margin-bottom:14px}
+.tab{padding:5px 16px;border-radius:5px;border:1px solid rgba(120,180,255,.25);color:#9fb4d8;cursor:pointer;font-size:13px}
+.tab.on{background:#2e8bf5;color:#fff;border-color:#2e8bf5}
+input[type=search]{width:100%;background:#0b1420;color:#cdd9ee;border:1px solid rgba(120,180,255,.25);
+  border-radius:6px;padding:8px 12px;font:13px inherit;margin-bottom:14px}
+.item{background:rgba(255,255,255,.03);border:1px solid rgba(120,180,255,.14);border-left:3px solid #2e8bf5;
+  border-radius:6px;padding:10px 14px;margin-bottom:10px;cursor:pointer}
+.item:hover{border-color:rgba(120,180,255,.45)}
+.item .t{color:#eaf2ff;font-size:14px;margin-bottom:4px}
+.item .n{color:#ffd479;font-size:13px;white-space:pre-wrap;margin:4px 0}
+.item .m{font-size:11px;color:#6b7a94}
+.hint{color:#6b7a94;font-size:13px;padding:20px 0}
+</style>
+</head>
+<body>
+<header>
+  <h1>热点采集网络</h1><span class="sub">备忘录与收藏</span>
+  <a href="/">← 回大屏</a>
+</header>
+<main>
+  <div class="tabs">
+    <div class="tab on" data-tab="notes">备忘录 <span id="cntN"></span></div>
+    <div class="tab" data-tab="fav">收藏 <span id="cntF"></span></div>
+  </div>
+  <input id="q" type="search" placeholder="搜索备注内容…（仅备忘录可用）">
+  <div id="list"><p class="hint">加载中…</p></div>
+</main>
+<script>
+(function () {
+  var tab = "notes";
+  var list = document.getElementById("list");
+  var q = document.getElementById("q");
+
+  function esc(s) {
+    return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) {
+      return {"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c];
+    });
+  }
+  function fmt(t) { return t ? String(t).slice(0, 16) : "—"; }
+
+  function render(rows, isNotes) {
+    if (!rows.length) {
+      list.innerHTML = '<p class="hint">' + (isNotes
+        ? "还没有备注。打开任意线索卡详情，写一句判断就会出现在这里。"
+        : "还没有收藏。在详情页点「☆ 收藏」即可。") + "</p>";
+      return;
+    }
+    var html = "";
+    rows.forEach(function (r) {
+      html += '<div class="item" data-id="' + r.item_id + '">';
+      html += '<div class="t">' + esc(r.title) + "</div>";
+      if (isNotes && r.content) html += '<div class="n">' + esc(r.content) + "</div>";
+      html += '<div class="m">' + esc(r.source || "") + " · " + fmt(r.published_at) +
+              (isNotes ? " · 更新于 " + fmt(r.updated_at) : " · 收藏于 " + fmt(r.created_at)) +
+              (r.favorite ? " · ★收藏" : "") + "</div></div>";
+    });
+    list.innerHTML = html;
+    Array.prototype.forEach.call(list.querySelectorAll(".item"), function (el) {
+      el.addEventListener("click", function () {
+        location.href = "/static/detail.html?id=" + el.getAttribute("data-id");
+      });
+    });
+  }
+
+  function load() {
+    list.innerHTML = '<p class="hint">加载中…</p>';
+    var url = tab === "notes"
+      ? "/api/notes?limit=200&q=" + encodeURIComponent(q.value.trim())
+      : "/api/favorites?limit=200";
+    fetch(url).then(function (r) { return r.json(); }).then(function (j) {
+      if (tab === "notes") { render(j.notes || [], true); document.getElementById("cntN").textContent = (j.notes || []).length; }
+      else { render(j.favorites || [], false); document.getElementById("cntF").textContent = (j.favorites || []).length; }
+    }).catch(function (e) {
+      list.innerHTML = '<p class="hint">加载失败：' + esc(e.message) + "</p>";
+    });
+  }
+
+  Array.prototype.forEach.call(document.querySelectorAll(".tab"), function (t) {
+    t.addEventListener("click", function () {
+      Array.prototype.forEach.call(document.querySelectorAll(".tab"), function (x) { x.classList.remove("on"); });
+      t.classList.add("on");
+      tab = t.getAttribute("data-tab");
+      q.disabled = tab !== "notes";
+      load();
+    });
+  });
+  q.addEventListener("input", function () { if (tab === "notes") load(); });
+  q.disabled = false;
+  load();
+})();
+</script>
+</body>
+</html>

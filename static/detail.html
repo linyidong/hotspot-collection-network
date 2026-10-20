@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<!-- 模块：条目详情页。职责：展示一条热点原文 + 深加工线索卡 + 备注 + 收藏。
+     数据来源：GET /api/item/{id}；备注失焦自动保存；零外部依赖。 -->
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>条目详情 · 热点采集网络</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#060a12;color:#cdd9ee;font:14px/1.7 "Microsoft YaHei","PingFang SC",Arial,sans-serif;min-height:100vh}
+header{display:flex;align-items:center;gap:12px;padding:12px 22px;border-bottom:1px solid rgba(120,180,255,.15)}
+h1{font-size:16px;color:#eaf2ff;letter-spacing:1px}
+.sub{font-size:10px;color:#f5c542;border:1px solid rgba(245,197,66,.55);padding:0 6px;border-radius:3px}
+header a{margin-left:auto;color:#7fd4ff;text-decoration:none;font-size:12px}
+main{max-width:1000px;margin:0 auto;padding:20px 22px 60px}
+.meta{font-size:12px;color:#8fa3c4;margin-bottom:10px}
+.title{font-size:20px;color:#eaf2ff;line-height:1.5;margin-bottom:8px}
+.src a{color:#7fd4ff;word-break:break-all}
+.panel{background:rgba(255,255,255,.03);border:1px solid rgba(120,180,255,.14);border-radius:8px;padding:14px 16px;margin-top:14px}
+.panel h2{font-size:12px;color:#8fa3c4;font-weight:400;letter-spacing:1px;margin-bottom:8px}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px}
+.chip{font-size:11px;padding:1px 7px;border-radius:3px;border:1px solid rgba(120,180,255,.25);color:#9fb4d8}
+.s1{background:#4d9de0;color:#06121f;border:0}.s2{background:#8a63f5;color:#fff;border:0}
+.s3{background:#f5a623;color:#1a1205;border:0}.s4{background:#2ecc8f;color:#06121f;border:0}
+.big{font-size:15px;color:#eaf2ff}
+.mono{font-family:Consolas,monospace;font-size:12px;color:#9fb4d8}
+ul{padding-left:18px}li{margin:4px 0}
+textarea{width:100%;min-height:90px;background:#0b1420;color:#cdd9ee;border:1px solid rgba(120,180,255,.25);
+  border-radius:6px;padding:10px;font:13px/1.6 inherit;resize:vertical}
+.bar{display:flex;align-items:center;gap:10px;margin-top:8px}
+button{background:rgba(120,180,255,.15);color:#cfe3ff;border:1px solid rgba(120,180,255,.3);
+  border-radius:5px;padding:5px 14px;cursor:pointer;font-size:12px}
+button.on{background:#2e8bf5;color:#fff;border-color:#2e8bf5}
+.hint{font-size:11px;color:#6b7a94}
+.err{color:#ff8080;font-size:13px}
+.hidden{display:none}
+</style>
+</head>
+<body>
+<header>
+  <h1>热点采集网络</h1><span class="sub">条目详情</span>
+  <a href="/">← 回大屏</a>
+</header>
+<main id="main"><p class="hint">加载中…</p></main>
+<script>
+(function () {
+  var id = new URLSearchParams(location.search).get("id");
+  var main = document.getElementById("main");
+  var STAGE_NAME = {S1: "S1 选品", S2: "S2 供应链", S3: "S3 交易结构", S4: "S4 客户开发"};
+  var GRADE = {high: "A", medium: "B", low: "C"};
+  var saved = null, timer = null;
+
+  function esc(s) {
+    return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) {
+      return {"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c];
+    });
+  }
+  function fmt(t) { return t ? String(t).slice(0, 16) : "—"; }
+
+  function render(d) {
+    var it = d.item, card = d.card || {};
+    var stage = card.stage || "";
+    var grade = GRADE[card.confidence] || "C";
+    var money = card.money_hypothesis || {};
+    var feas = card.feasibility || {};
+    var html = "";
+    html += '<div class="meta">' + esc(it.source || "未知来源") + " · " + fmt(it.published_at) +
+            " · #" + it.id + "</div>";
+    html += '<div class="title">' + esc(it.title) + "</div>";
+    html += '<div class="src">原文：<a href="' + esc(it.url || "#") + '" target="_blank" rel="noopener">' +
+            esc(it.url || "（无链接）") + "</a></div>";
+
+    if (!card.stage && !card.fact) {
+      html += '<div class="panel"><h2>线索卡</h2><p class="hint">该条目尚未深加工（可能是粗筛未通过、重复条目，或超出本轮限额）。</p>';
+      if (d.reasons && d.reasons.length) {
+        html += '<p class="err">原因：' + esc(d.reasons.join("；")) + "</p>";
+      }
+      html += "</div>";
+    } else {
+      html += '<div class="panel"><h2>事实</h2><div class="big">' + esc(card.fact) + "</div>";
+      html += '<div class="row" style="margin-top:10px">';
+      html += '<span class="chip ' + (stage || "").toLowerCase() + '">' +
+              esc(STAGE_NAME[stage] || stage || "未分类") + "</span>";
+      if (card.anchor && card.anchor.vertical) html += '<span class="chip">' + esc(card.anchor.vertical) + "</span>";
+      html += '<span class="chip">等级 ' + grade + "</span>";
+      if (card.anchor) html += '<span class="chip">' + esc(card.anchor.country || "—") + " / " +
+              esc(card.anchor.category || "—") + "</span>";
+      html += "</div></div>";
+
+      html += '<div class="panel"><h2>谁在缺什么（买家假设）</h2><div>' +
+              esc(card.buyer_hypothesis ||
+                  (card.who_lacks_what && card.who_lacks_what.subject) || "—") + "</div>" +
+              (card.who_lacks_what && card.who_lacks_what.need
+                ? '<div class="hint">缺口：' + esc(card.who_lacks_what.need) + "</div>" : "") +
+              '<div class="hint">信号：' + esc(card.signal || "—") + "</div></div>";
+
+      html += '<div class="panel"><h2>钱流</h2><div>' +
+              esc(money.form || "—") + " · 付钱方：" + esc(money.payer || "—") + "</div>" +
+              '<div class="hint">你赚：' + esc(money.your_cut || "—") + "（" + esc(money.status || "待验证") + "）</div></div>";
+
+      html += '<div class="panel"><h2>下一步</h2><div class="big">' +
+              esc((card.next_action && card.next_action.action) || "—") + "</div>" +
+              '<div class="mono">对象：' + esc((card.next_action && card.next_action.target) || "—") + "</div>" +
+              '<div class="hint">怎么执行：' + esc((card.next_action && card.next_action.how) || "—") + "</div></div>";
+
+      if (card.verify_plan && card.verify_plan.length) {
+        html += '<div class="panel"><h2>验证计划（3 条）</h2><ul>';
+        card.verify_plan.forEach(function (v) { html += "<li>" + esc(v) + "</li>"; });
+        html += "</ul></div>";
+      }
+
+      var flags = [];
+      if (feas.needs_license) flags.push("需资质");
+      if (feas.needs_capital) flags.push("需垫资");
+      if (feas.needs_team) flags.push("需团队");
+      if (feas.needs_identity) flags.push("需企业身份");
+      html += '<div class="panel"><h2>能力闸</h2><div>' +
+              (flags.length ? '<span class="err">不通过：' + esc(flags.join("、")) + "</span>"
+                            : "通过（在个人能力范围内）") + "</div>" +
+              '<div class="hint">' + esc(feas.reason || "") + "</div></div>";
+    }
+
+    html += '<div class="panel"><h2>我的备注</h2>' +
+            '<textarea id="note" placeholder="写一句你的判断，比如：可查越南海关 HS3926…（失焦自动保存）">' +
+            esc(d.note || "") + "</textarea>" +
+            '<div class="bar"><button id="fav" class="' + (d.favorite ? "on" : "") + '">' +
+            (d.favorite ? "★ 已收藏" : "☆ 收藏") + "</button>" +
+            '<span class="hint" id="saveHint">' + (d.note_updated_at ? "上次保存：" + fmt(d.note_updated_at) : "") +
+            "</span></div></div>";
+    main.innerHTML = html;
+
+    var ta = document.getElementById("note");
+    ta.addEventListener("input", function () {
+      document.getElementById("saveHint").textContent = "未保存…";
+    });
+    ta.addEventListener("blur", function () { saveNote(ta.value); });
+    document.getElementById("fav").addEventListener("click", toggleFav);
+  }
+
+  function saveNote(text) {
+    if (text === saved) return;
+    fetch("/api/item/" + id + "/note", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({content: text})
+    }).then(function (r) { return r.json(); }).then(function (j) {
+      if (j.ok) {
+        saved = text;
+        document.getElementById("saveHint").textContent =
+          text ? "已保存 " + (j.saved_at || "") : "备注已清空";
+      } else {
+        document.getElementById("saveHint").textContent = "保存失败：" + (j.error || "未知");
+      }
+    }).catch(function () {
+      document.getElementById("saveHint").textContent = "保存失败：网络错误";
+    });
+  }
+
+  function toggleFav() {
+    var b = document.getElementById("fav");
+    var next = !b.classList.contains("on");
+    fetch("/api/item/" + id + "/favorite", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({favorite: next})
+    }).then(function (r) { return r.json(); }).then(function (j) {
+      if (j.ok) {
+        b.classList.toggle("on", j.favorite);
+        b.textContent = j.favorite ? "★ 已收藏" : "☆ 收藏";
+      }
+    });
+  }
+
+  if (!id) { main.innerHTML = '<p class="err">缺少 id 参数</p>'; return; }
+  fetch("/api/item/" + id).then(function (r) {
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    return r.json();
+  }).then(render).catch(function (e) {
+    main.innerHTML = '<p class="err">加载失败：' + esc(e.message) + "</p>";
+  });
+})();
+</script>
+</body>
+</html>

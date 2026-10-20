@@ -291,6 +291,136 @@ def create_app() -> FastAPI:
             conn.close()
         return {"ok": True}
 
+    # ---------------- T8：详情 / 备忘录 / 收藏 ----------------
+    def _deep_of(conn, item_id: int):
+        """取该条目的深加工结果（最新一条），返回 (card, reasons, status)。"""
+        row = conn.execute(
+            "SELECT payload_json, status FROM analyses "
+            "WHERE item_id=? AND stage='deep' ORDER BY id DESC LIMIT 1",
+            (item_id,)).fetchone()
+        if row is None:
+            return None, [], None
+        try:
+            data = json.loads(row["payload_json"] or "{}")
+        except (ValueError, TypeError):
+            data = {}
+        return data.get("card"), data.get("reasons") or [], row["status"]
+
+    @app.get("/api/item/{item_id}")
+    def item_detail(item_id: int):
+        """条目详情：原文 + 深加工卡 + 备注 + 收藏态。"""
+        conn = db.get_conn()
+        try:
+            row = conn.execute(
+                "SELECT i.id, i.title, i.url, i.summary, i.published_at, i.region, "
+                "s.name AS source FROM items i LEFT JOIN sources s ON s.id=i.source_id "
+                "WHERE i.id=?", (item_id,)).fetchone()
+            if row is None:
+                return JSONResponse(status_code=404,
+                                    content={"error": "条目不存在"})
+            card, reasons, deep_status = _deep_of(conn, item_id)
+            note = conn.execute(
+                "SELECT content, updated_at FROM notes WHERE item_id=? "
+                "ORDER BY id DESC LIMIT 1", (item_id,)).fetchone()
+            fav = conn.execute(
+                "SELECT 1 FROM favorites WHERE item_id=?", (item_id,)).fetchone()
+            return {
+                "item": {"id": row["id"], "title": row["title"], "url": row["url"],
+                         "summary": row["summary"], "published_at": row["published_at"],
+                         "region": row["region"], "source": row["source"]},
+                "card": card,
+                "reasons": reasons,
+                "deep_status": deep_status,
+                "note": note["content"] if note else None,
+                "note_updated_at": note["updated_at"] if note else None,
+                "favorite": bool(fav),
+            }
+        finally:
+            conn.close()
+
+    @app.post("/api/item/{item_id}/note")
+    def save_note(item_id: int, content: str = Body(default="", embed=True)):
+        """写/更新备注（同一条目只保留一条）。空内容 = 删除备注。"""
+        text = (content or "").strip()
+        conn = db.get_conn()
+        try:
+            exists = conn.execute("SELECT 1 FROM items WHERE id=?", (item_id,)).fetchone()
+            if exists is None:
+                return JSONResponse(status_code=404, content={"ok": False, "error": "条目不存在"})
+            if not text:
+                conn.execute("DELETE FROM notes WHERE item_id=?", (item_id,))
+                conn.commit()
+                return {"ok": True, "deleted": True}
+            cur = conn.execute(
+                "UPDATE notes SET content=?, updated_at=datetime('now','localtime') "
+                "WHERE item_id=?", (text, item_id))
+            if cur.rowcount == 0:
+                conn.execute(
+                    "INSERT INTO notes(item_id, content, updated_at) "
+                    "VALUES(?,?,datetime('now','localtime'))", (item_id, text))
+            conn.commit()
+            return {"ok": True, "saved_at": conn.execute(
+                "SELECT updated_at FROM notes WHERE item_id=? ORDER BY id DESC LIMIT 1",
+                (item_id,)).fetchone()["updated_at"]}
+        finally:
+            conn.close()
+
+    @app.post("/api/item/{item_id}/favorite")
+    def toggle_favorite(item_id: int, favorite: bool = Body(default=True, embed=True)):
+        """收藏 / 取消收藏。"""
+        conn = db.get_conn()
+        try:
+            exists = conn.execute("SELECT 1 FROM items WHERE id=?", (item_id,)).fetchone()
+            if exists is None:
+                return JSONResponse(status_code=404, content={"ok": False, "error": "条目不存在"})
+            if favorite:
+                conn.execute(
+                    "INSERT OR IGNORE INTO favorites(item_id, created_at) "
+                    "VALUES(?,datetime('now','localtime'))", (item_id,))
+            else:
+                conn.execute("DELETE FROM favorites WHERE item_id=?", (item_id,))
+            conn.commit()
+            return {"ok": True, "favorite": bool(favorite)}
+        finally:
+            conn.close()
+
+    @app.get("/api/notes")
+    def list_notes(q: str = "", limit: int = 100):
+        """备注列表（含搜索）；同时返回是否已收藏。"""
+        limit = max(1, min(int(limit), 500))
+        conn = db.get_conn()
+        try:
+            sql = ("SELECT n.item_id, n.content, n.updated_at, i.title, i.url, "
+                   "i.published_at, s.name AS source, "
+                   "EXISTS(SELECT 1 FROM favorites f WHERE f.item_id=n.item_id) AS favorite "
+                   "FROM notes n JOIN items i ON i.id=n.item_id "
+                   "LEFT JOIN sources s ON s.id=i.source_id ")
+            args = []
+            if q:
+                sql += "WHERE n.content LIKE ? "
+                args.append(f"%{q}%")
+            sql += "ORDER BY n.updated_at DESC LIMIT ?"
+            args.append(limit)
+            rows = conn.execute(sql, args).fetchall()
+            return {"notes": [dict(r) for r in rows]}
+        finally:
+            conn.close()
+
+    @app.get("/api/favorites")
+    def list_favorites(limit: int = 100):
+        """收藏列表（按收藏时间倒序）。"""
+        limit = max(1, min(int(limit), 500))
+        conn = db.get_conn()
+        try:
+            rows = conn.execute(
+                "SELECT f.item_id, f.created_at, i.title, i.url, i.published_at, "
+                "s.name AS source FROM favorites f JOIN items i ON i.id=f.item_id "
+                "LEFT JOIN sources s ON s.id=i.source_id "
+                "ORDER BY f.created_at DESC LIMIT ?", (limit,)).fetchall()
+            return {"favorites": [dict(r) for r in rows]}
+        finally:
+            conn.close()
+
     @app.get("/", include_in_schema=False)
     def index():
         return FileResponse(settings.static_dir / "index.html", media_type="text/html; charset=utf-8")

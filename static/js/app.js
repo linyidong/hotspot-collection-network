@@ -172,11 +172,13 @@
   function cardHTML(l) {
     var st = l.stage || "S1", g = GRADE[l.confidence] || "C";
     var n = l.next_action || {};
-    return '<div class="card s' + st.slice(1) + '" title="' + esc(l.title) + '">' +
+    var tt = String(l.title || "").replace(/\s+/g, " ").trim();
+    return '<div class="card s' + st.slice(1) + '" data-id="' + (l.id || "") +
+      '" title="' + esc(tt) + '（点击查看详情）">' +
       '<div class="ch"><span class="st s' + st.slice(1) + '">' + (STAGE_NAME[st] || st) + "</span>" +
       '<span class="tg">' + esc(indLabel(l.vertical)) + "</span>" +
       '<span class="gr ' + GRADE_CLS[g] + '">' + g + "</span></div>" +
-      '<div class="fact">' + esc(l.title) + "</div>" +
+      '<div class="fact">' + esc(tt) + "</div>" +
       '<div class="next">→ ' + esc(n.action || "—") + "</div>" +
       '<div class="cf"><span>钱流：' + esc(l.money_form || "—") + "</span><span>" + fmtTime(l.published_at) + "</span></div></div>";
   }
@@ -209,6 +211,18 @@
     put("pS3", s3, cardHTML, "暂无 S3 交易结构线索");
     put("pOld", oldA, cardHTML, "暂无更早批次线索");
     put("pEx", EXCL, exHTML, "暂无已排除条目");
+    // 点击卡片进详情页（委托到面板容器，避免每次重渲染重复绑定）
+    ["pNew", "pA", "pS1", "pS3", "pOld"].forEach(function (pid) {
+      var box = $(pid);
+      if (box && !box.__bound) {
+        box.__bound = true;
+        box.addEventListener("click", function (ev) {
+          var el = ev.target.closest(".card");
+          var id = el && el.getAttribute("data-id");
+          if (id) window.open("/static/detail.html?id=" + id, "_blank");
+        });
+      }
+    });
     $("tNew").textContent = "新增（" + F.time + "）";
     $("cNew").textContent = newA.length;
     $("cA").textContent = aB.length;
