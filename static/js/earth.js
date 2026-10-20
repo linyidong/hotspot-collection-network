@@ -299,7 +299,7 @@
     function hideLabel() { label.classList.remove("show"); }
 
     // ---- 交互：拖拽旋转 / 滚轮缩放（仅地球区）/ 悬停放大+标签 / 点击（位移<4px）----
-    var drag = null, ivx = 0, ivy = 0, auto = performance.now(), zoomTarget = null;
+    var drag = null, ivx = 0, ivy = 0, auto = performance.now(), zoomTarget = null, baseRotY = 0;
     var pointer = { x: -9999, y: -9999 }, hover = null, downPt = null;
     var raycaster = new THREE.Raycaster(); raycaster.params.Sprite = { threshold: 0.02 };
 
@@ -315,7 +315,7 @@
       if (!drag) return;
       var dx = e.clientX - drag.x, dy = e.clientY - drag.y;
       drag.x = e.clientX; drag.y = e.clientY;
-      globe.rotation.y += dx * 0.006;
+      globe.rotation.y += dx * 0.006; baseRotY = globe.rotation.y;
       globe.rotation.x = Math.max(-1.3, Math.min(1.3, globe.rotation.x + dy * 0.006));
       ivx = dx * 0.006 * 0.5; ivy = dy * 0.006 * 0.5; auto = performance.now();
       e.stopPropagation();
@@ -330,7 +330,7 @@
           window.open("/static/detail.html?id=" + h.id, "_blank");
         }
       }
-      if (hover && !h && h !== undefined) { hover.hover = false; hover.spr.scale.setScalar(hover.base); hover = null; hideLabel(); }
+      if (hover && !h && h !== undefined) { hover.hover = false; hover.spr.scale.setScalar(hover.base * 2.2); hover = null; hideLabel(); }
       drag = null; downPt = null;
     });
     cv.addEventListener("wheel", function (e) {
@@ -341,7 +341,7 @@
     }, { passive: false });
     cv.addEventListener("mouseleave", function () {
       pointer.x = -9999; pointer.y = -9999;
-      if (hover) { hover.hover = false; hover.spr.scale.setScalar(hover.base); hover = null; }
+      if (hover) { hover.hover = false; hover.spr.scale.setScalar(hover.base * 2.2); hover = null; }
       hideLabel();
     });
 
@@ -374,7 +374,10 @@
         globe.rotation.x = Math.max(-1.3, Math.min(1.3, globe.rotation.x + ivy));
         ivx *= 0.94; ivy *= 0.94; auto = now;
       }
-      else if (now - auto > 3000 && !window.__stopAuto) { globe.rotation.y += 0.003; }
+      else if (now - auto > 3000 && !window.__stopAuto) {
+        // 空闲：小幅度摆动，避免把线索转到背面
+        globe.rotation.y = baseRotY + Math.sin(t * 0.16) * 0.22;
+      }
 
       // 光点呼吸 + 脉冲环（呼吸缩放作用于 g，环在 g 内抵消世界缩放）
       hot.forEach(function (h) {
@@ -407,8 +410,8 @@
       });
 
       // 云层缓慢漂移 + 大气呼吸（±8%）
-      // 云层漂移会露接缝，先保持静止（后续用双采样平滑再开）
-      if (cloudMat) cloudMat.uniforms.uDrift.value = 0;
+      // 云层漂移：小幅往复（±0.035），不跨越贴图接缝
+      if (cloudMat) cloudMat.uniforms.uDrift.value = 0.035 * Math.sin(t * 0.045);
       if (haloMat) haloMat.uniforms.uK.value = 0.20 * (1 + 0.08 * Math.sin(t * 0.9));
       if (atmMat) atmMat.uniforms.uK.value = 0.45 * (1 + 0.05 * Math.sin(t * 1.3 + 1.7));
       // 点击聚焦：镜头平滑推近
@@ -422,7 +425,7 @@
         rp.life += 1 / 60;
         var kk = rp.life / 1.2;
         if (kk >= 1) { globe.remove(rp.mesh); rp.mesh.geometry.dispose(); rp.mesh.material.dispose(); ripples.splice(r3, 1); continue; }
-        rp.mesh.scale.setScalar(1 + kk * 2.6);
+        rp.mesh.scale.setScalar(0.10 * (1 + kk * 2.8));
         rp.mesh.material.opacity = (1 - kk) * 0.85;
       }
 
@@ -430,11 +433,11 @@
       if (++hoverTick % 4 === 0 && !drag) {
         var h2 = hitTest(pointer.x, pointer.y);
         if (h2 !== hover) {
-          if (hover) { hover.hover = false; hover.spr.scale.setScalar(hover.base); }
+          if (hover) { hover.hover = false; hover.spr.scale.setScalar(hover.base * 2.2); }
           hover = h2;
           if (hover) {
             hover.hover = true;
-            hover.spr.scale.setScalar(hover.base * 1.3);
+            hover.spr.scale.setScalar(hover.base * 2.2 * 1.25);
             var p = new THREE.Vector3().copy(hover.g.position).applyMatrix4(globe.matrixWorld).project(cam);
             var rr2 = cv.getBoundingClientRect();
             showLabel(hover, rr2.left + (p.x + 1) / 2 * rr2.width, rr2.top + (1 - p.y) / 2 * rr2.height);
@@ -538,18 +541,24 @@
         globe.add(rm); ripples.push({ mesh: rm, life: 0 });
       }
       var entry = { g: g, ring: null, base: baseS, ph: (i * 0.17) % 1, country: d.country, stage: d.stage, pot: pot, id: meta.id, hover: false };
-      var spr = new THREE.Sprite(new THREE.SpriteMaterial({
-        map: glowFor(col), color: 0xffffff, transparent: true, opacity: 0.95,
+      // 外层彩色光晕（阶段色真正显色）
+      var halo = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: glowFor(col), color: 0xffffff, transparent: true, opacity: 1.0,
         blending: THREE.AdditiveBlending, depthWrite: false
       }));
-      spr.scale.setScalar(baseS);
-      spr.renderOrder = 4;
-      spr.userData.h = entry;
-      var ring = new THREE.Mesh(new THREE.RingGeometry(baseS * 0.9, baseS * 1.9, 32),
-        new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.75, side: THREE.DoubleSide, blending: THREE.AdditiveBlending, depthWrite: false }));
+      halo.scale.setScalar(baseS * 2.2);
+      halo.renderOrder = 4;
+      halo.userData.h = entry;
+      // 内层实心亮核（小而白，保证在亮面上也看得见）
+      var core = new THREE.Mesh(new THREE.SphereGeometry(baseS * 0.30, 12, 12),
+        new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.95,
+          blending: THREE.AdditiveBlending, depthWrite: false }));
+      core.renderOrder = 5;
+      var ring = new THREE.Mesh(new THREE.RingGeometry(baseS * 1.05, baseS * 1.22, 44),
+        new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.55, side: THREE.DoubleSide, blending: THREE.AdditiveBlending, depthWrite: false }));
       ring.renderOrder = 4;
-      entry.spr = spr; entry.ring = ring;
-      g.add(spr, ring); globe.add(g);
+      entry.spr = halo; entry.core = core; entry.ring = ring; entry.col = col;
+      g.add(halo, core, ring); globe.add(g);
       hot.push(entry);
     });
 
@@ -574,8 +583,8 @@
           vertexColors: true, transparent: true, opacity: 0.95,
           blending: THREE.AdditiveBlending, depthWrite: false }));
         L.renderOrder = 3;
-        var dot = new THREE.Mesh(new THREE.SphereGeometry(0.022, 8, 8),
-          new THREE.MeshBasicMaterial({ color: 0xd8f2ff, blending: THREE.AdditiveBlending, depthWrite: false }));
+        var dot = new THREE.Mesh(new THREE.SphereGeometry(0.014, 10, 10),
+          new THREE.MeshBasicMaterial({ color: baseCol, blending: THREE.AdditiveBlending, depthWrite: false }));
         dot.renderOrder = 4;
         var glow = new THREE.Sprite(new THREE.SpriteMaterial({
           map: glowTex, color: 0x7fd8ff, transparent: true, opacity: 0.6,
@@ -586,6 +595,19 @@
         lines.push({ c: c, dot: dot, L: L, glow: glow, ph: i * 0.31,
                      geo: lg, colors: lg.getAttribute("color"), baseCol: baseCol });
       });
+    }
+    // 首次渲染时把线索重心转到正面（相机在 +Z）
+    if (!window.__focusDone && arr.length) {
+      var best = arr.slice().sort(function (a, b) {
+        var pa2 = lm[a.country] ? lm[a.country].pot : 0, pb2 = lm[b.country] ? lm[b.country].pot : 0;
+        return (pb2 || 0) - (pa2 || 0);
+      })[0];
+      var wp = latLon(best.lat, best.lon, 1.0);
+      var targetY = -Math.atan2(wp.x, wp.z);
+      baseRotY = targetY; globe.rotation.y = targetY;
+      // 同时按纬度俯仰，让焦点落在画面中部
+      globe.rotation.x = Math.atan2(wp.y, Math.hypot(wp.x, wp.z));
+      window.__focusDone = true;
     }
     window.__dotCountries = curC;
     window.__spots = hot.length; window.__lines = lines.length; window.__dots = hot.length;
