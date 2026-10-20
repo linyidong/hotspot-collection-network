@@ -392,7 +392,7 @@ def run_once(deep_limit: int = None, trigger: str = "手动") -> dict:
                     conn.execute(
                         "INSERT INTO analyses(item_id, stage, model, payload_json, "
                         "status, cost, created_at) VALUES(?,?,?,?,?,?,?)",
-                        (it["id"], "deep", model or DEEP_MODEL,
+                        (it["id"], "deep", cfg["deep_model"],
                          json.dumps(payload, ensure_ascii=False), res["status"],
                          res["cost"], _now()))
                     conn.commit()
