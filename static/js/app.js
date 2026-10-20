@@ -551,6 +551,73 @@
     }
   });
 
+  // ===== 面板拖动换位（拖标题栏，位置记忆在 localStorage）=====
+  function panelKey(p) { var b = p.querySelector(".pc"); return b ? b.id : ""; }
+  function saveOrder() {
+    var grid = $("grid");
+    var order = [].map.call(grid.children, panelKey);
+    try { localStorage.setItem("hcn_panel_order", JSON.stringify(order)); } catch (e) {}
+  }
+  function restoreOrder() {
+    var grid = $("grid");
+    try {
+      var order = JSON.parse(localStorage.getItem("hcn_panel_order") || "[]");
+      if (!order.length) return;
+      var map = {};
+      [].forEach.call(grid.children, function (p) { var k = panelKey(p); if (k) map[k] = p; });
+      order.forEach(function (k) { if (map[k]) grid.appendChild(map[k]); });
+    } catch (e) {}
+  }
+  function initDrag() {
+    var grid = $("grid");
+    if (!grid || grid.__drag) return;
+    grid.__drag = true;
+    var dragEl = null;
+    [].forEach.call(grid.children, function (p) {
+      p.draggable = true;
+      p.addEventListener("dragstart", function (e) {
+        // 只有按住标题栏才能拖，避免干扰卡片内点击/选择
+        if (!e.target.closest(".pt")) { e.preventDefault(); return; }
+        dragEl = p;
+        p.classList.add("dragging");
+        e.dataTransfer.effectAllowed = "move";
+        try { e.dataTransfer.setData("text/plain", panelKey(p)); } catch (_) {}
+      });
+      p.addEventListener("dragend", function () {
+        p.classList.remove("dragging");
+        dragEl = null;
+        saveOrder();
+      });
+      p.addEventListener("dragover", function (e) {
+        if (!dragEl || dragEl === p) return;
+        e.preventDefault();
+        p.classList.add("target");
+      });
+      p.addEventListener("dragleave", function () { p.classList.remove("target"); });
+      p.addEventListener("drop", function (e) {
+        e.preventDefault();
+        p.classList.remove("target");
+        if (!dragEl || dragEl === p) return;
+        var kids = [].slice.call(grid.children);
+        var i = kids.indexOf(dragEl), j = kids.indexOf(p);
+        if (i < 0 || j < 0) return;
+        if (i < j) grid.insertBefore(dragEl, p.nextSibling);
+        else grid.insertBefore(dragEl, p);
+        dragEl = null;
+        saveOrder();
+      });
+    });
+    restoreOrder();
+  }
+  initDrag();
+  var resetBtn = $("resetLayout");
+  if (resetBtn) {
+    resetBtn.onclick = function () {
+      try { localStorage.removeItem("hcn_panel_order"); } catch (e) {}
+      location.reload();
+    };
+  }
+
   var _render = render;
   render = function () { _render(); renderSources(); };
   loadSuggestions();
