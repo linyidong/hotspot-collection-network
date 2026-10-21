@@ -776,20 +776,45 @@
       g.appendChild(c3);
       g.classList.add("three");
       lockCen(true);            // 地球保持原尺寸
+      syncCol3Btn();
       return c3;
     }
-    if (!on && c3 && !c3.children.length) {
-      g.removeChild(c3);
-      g.classList.remove("three");
-      lockCen(false);           // 恢复自适应
-      return null;
+    if (!on && c3) {
+      var vis = Array.prototype.slice.call(c3.children).filter(function (p) {
+        return !p.classList.contains("removed");
+      });
+      if (!vis.length) {          // 没有可见面板 → 真正收起
+        var L = g.querySelector(".colL");
+        Array.prototype.slice.call(c3.children).forEach(function (p) {
+          L.appendChild(p);       // 隐藏中的面板搬回左列，避免丢
+          p.__w = 1; p.__w0 = 1; p.style.flexGrow = 1;
+        });
+        g.removeChild(c3);
+        g.classList.remove("three");
+        lockCen(false);           // 恢复自适应
+        syncCol3Btn();
+        return null;
+      }
     }
     return c3;
   }
-  function collapseCol3IfEmpty() {
+  function collapseCol3IfEmpty(force) {
     var g = $("grid");
     var c3 = g.querySelector(".col3");
-    if (c3 && !c3.children.length) ensureCol3(false);
+    if (!c3) return;
+    if (!force) {
+      var vis = Array.prototype.slice.call(c3.children).filter(function (p) {
+        return !p.classList.contains("removed");
+      });
+      if (vis.length) return;     // 还有可见面板 → 不收
+    }
+    ensureCol3(false);
+    syncCol3Btn();
+  }
+  function syncCol3Btn() {
+    var g = $("grid"), b = $("btnCol3Close");
+    if (!g || !b) return;
+    b.style.display = g.classList.contains("three") ? "block" : "none";
   }
   function colMapSave() {
     var c = cols(); var out = {};
@@ -988,6 +1013,8 @@
       head.appendChild(b);
       if (HID[key]) p.classList.add("removed");
     });
+    // 加载后自愈：第三列若只剩隐藏面板，自动收回两列
+    setTimeout(function () { collapseCol3IfEmpty(); syncCol3Btn(); }, 60);
     updateHint();
   })();
   // 夜间模式切换（状态在 earth.js，这里只做按钮与文案）
@@ -1006,6 +1033,15 @@
     };
     setTimeout(syncNightLabel, 300);
   }
+
+  var col3Btn = $("btnCol3Close");
+  if (col3Btn) {
+    col3Btn.onclick = function () {
+      collapseCol3IfEmpty(true);   // 强制收起第三侧：面板全部搬回左列
+      saveSize();
+    };
+  }
+  setTimeout(syncCol3Btn, 300);
 
   var resetBtn = $("resetLayout");
   if (resetBtn) {
