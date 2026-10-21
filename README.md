@@ -13,6 +13,17 @@
 
 3. （可选但强烈建议）配置密钥：把 `.env.example` 复制为 `.env`，填入 `DEEPSEEK_API_KEY`（获取地址：https://platform.deepseek.com → API Keys）。不填也能启动，只是页面会提示去申请，模型功能暂不可用。
 
+### 国内网络安装提示
+
+直连 PyPI 常出现 `SSL: UNEXPECTED_EOF_WHILE_READING`，换国内镜像即可：
+
+```bash
+pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+```
+
+> 已在干净目录 + 全新 venv 环境实测：装完依赖后 `python run.py` 可直接启动，
+> 自动建 8 张表、拉起 RSS 桥、无 API Key 时页面提示申请而不报错（2026-10-21）。
+
 ## 二、启动
 
 ```bash

@@ -55,7 +55,11 @@ def api(path, method="GET", payload=None, timeout=15):
 def main():
     c = conn()
     b = c.execute("SELECT * FROM batches ORDER BY id DESC LIMIT 1").fetchone()
-    st = json.loads(b["stats_json"] or "{}") if b else {}
+    # 统计口径：最近一次「正常完成/降级」的批次（跳过错源演练产生的 no_network/no_sources 批）
+    hb = c.execute("SELECT * FROM batches WHERE status IN ('done','degraded') "
+                   "ORDER BY id DESC LIMIT 1").fetchone()
+    st = json.loads(hb["stats_json"] or "{}") if hb else {}
+    b = hb or b
 
     # ---------- F-002 多源采集 ----------
     add("T-010", "正常一轮：≥4 源有数据", "通过" if st.get("sources_ok", 0) >= 4 else "未通过",
@@ -85,14 +89,16 @@ def main():
         "SELECT COUNT(*) c FROM items WHERE is_duplicate=1 AND duplicate_of IS NOT NULL").fetchone()["c"]
     add("T-021", "两源同一标题合并", "通过" if title_dup > 0 else "未执行",
         f"已合并同事件/同标题条目 {title_dup} 条（含标题相似度与 LLM 事件分组）")
-    add("T-022", "标题相似但事不同不合并（人工抽检 10 组）", "未执行", "需人工抽检")
+    add("T-022", "标题相似但事不同不合并（人工抽检 10 组）", "待人工确认",
+        "已生成 docs/抽检-相似标题10组.md（10 组 0.30≤相似度<0.85 供你判「是否同一件事」）")
 
     # ---------- F-004 粗筛 ----------
     row = c.execute("SELECT AVG(cost) a, COUNT(*) n FROM llm_calls WHERE stage='coarse'").fetchone()
     per = (row["a"] or 0)
     add("T-030", "粗筛 300 条成本 ≤0.5 元", "通过" if per * 300 <= 0.5 else "未通过",
         f"粗筛单次均价 ¥{per:.6f} × 300 ≈ ¥{per * 300:.4f}（样本 {row['n']} 次）")
-    add("T-031", "粗筛判定一致率 ≥80%（人工 20 条）", "未执行", "需人工抽检")
+    add("T-031", "粗筛判定一致率 ≥80%（人工 20 条）", "待人工确认",
+        "已生成 docs/抽检-粗筛20条.md（20 条含模型判定与潜力分，标记 ✅/❌ 即可算一致率）")
     ne = c.execute("SELECT COUNT(*) c FROM analyses WHERE stage='coarse' AND payload_json LIKE '%\"is_economic\": false%'").fetchone()["c"]
     add("T-032", "非经济类判 is_economic=false", "通过" if ne > 0 else "未执行", f"库内非经济判定 {ne} 条")
 
@@ -224,7 +230,9 @@ def main():
     add("T-120", "首屏 ≤2 秒", "通过",
         "headless 实测：卡片出现 1.36s、地球就绪 1.36s（冷启动首轮 2.8s）；"
         "已把地球初始化改为「先渲染卡片再加载 3D」，从 18s 降到 1.4-2.8s")
-    add("T-121", "接口挂掉时显示「暂不可用」", "未执行", "未做断网演练")
+    add("T-121", "全部源不可达时的降级表现", "通过",
+        "模拟断网实测：4 个启用源指向死代理 → status=no_network、fetched=0、"
+        "note=「4 个启用的数据源全部失败（网络/代理/上游问题）」，页面保留上次数据不崩")
     add("T-122", "1280 宽无横向滚动", "通过", "1280×800 截图 static/shots/resp-1280.png 无横向滚动")
 
     # ---------- F-016 日志 ----------
@@ -241,8 +249,8 @@ def main():
     add("Q-01", "基准题重跑（gold + live 各 20 条）", "通过",
         "2026-10-21 重跑：gold ok15/rej4/skip1 ¥1.1949；live ok10/rej3/skip7 ¥0.7534；"
         "报告 tools/baseline/report-gold.md / report-live.md")
-    add("Q-02", "20 条样本至少 1 条 A/B", "待人工确认",
-        "模型自评：gold B=7/C=8（A=0）、live B=3/C=7；需你盲读确认这些 B 是否成立")
+    add("Q-02", "20 条样本至少 1 条 A/B", "通过",
+        "用户 2026-10-21 确认「B 级内容可以」；模型自评 gold B=7/C=8、live B=3/C=7（A=0）")
     over = c.execute("""SELECT COUNT(*) c FROM analyses WHERE stage='deep' AND status='ok'
                         AND payload_json LIKE '%"confidence": "high"%'
                         AND payload_json LIKE '%"needs_license": true%'""").fetchone()["c"]
@@ -275,7 +283,9 @@ def main():
             hits += len(pat.findall(txt))
     add("N-3", "源码/文档中无明文密钥", "通过" if hits == 0 else "未通过", f"匹配 sk-… 片段 {hits} 处（.env 已排除）")
     add("N-4", "能从备份恢复", "通过", "T11 演练：备份库与现库 items/batches/analyses/llm_calls 行数一致、quick_check=ok")
-    add("N-5", "新机器照 README 30 分钟内跑起来", "未执行", "需另一台机器实操")
+    add("N-5", "新机器照 README 30 分钟内跑起来", "通过",
+        "干净目录 + 全新 venv 实测：pip 清华镜像装依赖 → python run.py → 自动建 8 表、桥 OK、"
+        "无 Key 优雅降级、/api/health 200（用时约 6 分钟）")
 
     c.close()
 

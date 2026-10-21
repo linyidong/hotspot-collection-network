@@ -462,10 +462,16 @@ def run_once(deep_limit: int = None, trigger: str = "手动") -> dict:
         stats["cost"] = round(cost_row["c"] or 0.0, 6)
         stats["duration_s"] = round(time.time() - t0, 1)
         # 状态优先级：全源不可用 > 预算硬停 > 部分源失败 > 正常
+        enabled_n = conn.execute("SELECT COUNT(*) c FROM sources WHERE enabled=1").fetchone()["c"]
         if stats.get("sources_ok", 0) == 0 and stats.get("fetched", 0) == 0:
-            status = "no_sources"
-            stats["no_sources"] = True
-            stats["note"] = "本轮没有任何可用数据源（全部停用或全部失败）"
+            if enabled_n == 0:
+                status = "no_sources"
+                stats["no_sources"] = True
+                stats["note"] = "所有数据源都已停用"
+            else:
+                status = "no_network"
+                stats["no_network"] = True
+                stats["note"] = f"{enabled_n} 个启用的数据源全部失败（网络/代理/上游问题）"
         elif stats["budget_stop"] == "hard":
             status = "stopped_budget"
         elif stats["sources_failed"] > 0:

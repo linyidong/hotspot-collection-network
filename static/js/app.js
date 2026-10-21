@@ -360,9 +360,12 @@
       ov.classList.remove("show");
     }
     if (SOURCES && SOURCES.length && SOURCES.every(function (s) { return s.status !== "ok"; })) {
-      $("sfail").textContent = (BATCH_INFO && BATCH_INFO.status === "no_sources")
+      var _bs = BATCH_INFO && BATCH_INFO.status;
+    $("sfail").textContent = _bs === "no_sources"
       ? "本轮没有任何可用数据源：请在左侧「采集来源」启用数据源后重试"
-      : "全部数据源采集失败：请检查网络或源配置后重试";
+      : (_bs === "no_network"
+        ? "全部数据源不可用：请检查网络/代理后重试（页面数据为上次结果）"
+        : "全部数据源采集失败：请检查网络或源配置后重试");
     $("sfail").classList.add("show");
     } else {
       $("sfail").classList.remove("show");
