@@ -102,6 +102,21 @@ def _backup_now():
         print(f"[备份] 失败（不影响采集）：{type(exc).__name__}: {exc}", flush=True)
 
 
+def _platform_snapshot_now():
+    """平台榜单快照（T12 · C 方案）：每天刷新一次，失败只记日志。"""
+    try:
+        from .platform import refresh, PAGES, is_fresh
+        if is_fresh(20):
+            print("[平台榜单] 快照仍新鲜，跳过刷新", flush=True)
+            return
+        print("[平台榜单] 开始刷新（headless Chrome，约 1 分钟）…", flush=True)
+        snap = refresh(PAGES, per_page=20)
+        n = sum(len(v.get("items") or []) for v in (snap.get("pages") or {}).values())
+        print(f"[平台榜单] 刷新完成：{len(snap.get('pages') or {})} 页 / {n} 条；错误 {snap.get('errors')}", flush=True)
+    except Exception as exc:
+        print(f"[平台榜单] 刷新失败（不影响采集）：{type(exc).__name__}: {exc}", flush=True)
+
+
 def _cleanup_now():
     """过期数据清理：失败只记日志，绝不影响采集。"""
     try:
@@ -137,6 +152,9 @@ def start(deep_limit=None):
         note = "每日 08/11/14/17/20/23"
 
     # 每日过期数据清理（04:05，失败只记日志）
+    sched.add_job(_platform_snapshot_now, CronTrigger(hour=5, minute=0), id="platform_snapshot_daily",
+                  max_instances=1, coalesce=True)
+
     sched.add_job(_backup_now, CronTrigger(hour=3, minute=30), id="backup_daily",
                   max_instances=1, coalesce=True)
 
@@ -154,6 +172,13 @@ def start(deep_limit=None):
             _backup_now()
     except Exception as exc:
         print(f"[备份] 启动检查失败：{exc}", flush=True)
+
+    # 启动补刷新平台榜单（放线程里，不阻塞服务启动）
+    try:
+        import threading
+        threading.Thread(target=_platform_snapshot_now, daemon=True).start()
+    except Exception as exc:
+        print(f"[平台榜单] 启动线程失败：{exc}", flush=True)
 
     _cleanup_now()
     job = sched.get_jobs()[0]

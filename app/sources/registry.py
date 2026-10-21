@@ -53,6 +53,44 @@ SOURCES = [
     SourceSpec(
         id="sina", name="新浪财经7×24", type="api",
         path="sina", url="https://finance.sina.com.cn/7x24/"),
+    # ---- T12 平台/需求侧信号（A 方案）----
+    SourceSpec(
+        id="gnews-kuajing", name="Google新闻·跨境电商", type="rss",
+        path="gnews", channel="跨境电商",
+        url="https://news.google.com/rss/search?q=%E8%B7%A8%E5%A2%83%E7%94%B5%E5%95%86&hl=zh-CN&gl=CN&ceid=CN:zh-Hans"),
+    SourceSpec(
+        id="gnews-xuanpin", name="Google新闻·选品爆款", type="rss",
+        path="gnews", channel="选品 爆款",
+        url="https://news.google.com/rss/search?q=%E9%80%89%E5%93%81%20%E7%88%86%E6%AC%BE&hl=zh-CN&gl=CN&ceid=CN:zh-Hans"),
+    SourceSpec(
+        id="gnews-guanshui", name="Google新闻·关税出海", type="rss",
+        path="gnews", channel="关税 出海",
+        url="https://news.google.com/rss/search?q=%E5%85%B3%E7%A8%8E%20%E5%87%BA%E6%B5%B7&hl=zh-CN&gl=CN&ceid=CN:zh-Hans"),
+    SourceSpec(
+        id="gnews-platform", name="Google新闻·平台政策", type="rss",
+        path="gnews", channel="TikTok Shop Shopee Temu",
+        url="https://news.google.com/rss/search?q=TikTok%20Shop%20OR%20Shopee%20OR%20Temu&hl=zh-CN&gl=CN&ceid=CN:zh-Hans"),
+    SourceSpec(
+        id="gnews-warehouse", name="Google新闻·海外仓物流", type="rss",
+        path="gnews", channel="海外仓 物流",
+        url="https://news.google.com/rss/search?q=%E6%B5%B7%E5%A4%96%E4%BB%93%20%E7%89%A9%E6%B5%81&hl=zh-CN&gl=CN&ceid=CN:zh-Hans"),
+    SourceSpec(
+        id="weibo-hot", name="微博热搜", type="json",
+        path="weibo", channel="hot",
+        url="https://weibo.com/ajax/side/hotSearch"),
+    # ---- T12 平台榜单（C 方案，日更快照）----
+    SourceSpec(
+        id="amazon-kitchen", name="Amazon·厨房家居榜", type="snapshot",
+        path="amazon-kitchen", channel="amazon-kitchen",
+        url="https://www.amazon.com/gp/bestsellers/kitchen/"),
+    SourceSpec(
+        id="amazon-electronics", name="Amazon·电子配件榜", type="snapshot",
+        path="amazon-electronics", channel="amazon-electronics",
+        url="https://www.amazon.com/gp/bestsellers/electronics/"),
+    SourceSpec(
+        id="amazon-beauty", name="Amazon·美妆个护榜", type="snapshot",
+        path="amazon-beauty", channel="amazon-beauty",
+        url="https://www.amazon.com/gp/bestsellers/beauty/"),
 ]
 
 

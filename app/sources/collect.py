@@ -11,8 +11,11 @@ import httpx
 from .. import db
 from ..config import settings
 from .registry import SOURCES
+from .gnews import GoogleNewsSource
 from .rss_bridge import RssBridgeSource
 from .sina import SinaSource
+from .snapshot import SnapshotSource
+from .weibo import WeiboHotSource
 from .wallstcn import WallStcnSource
 
 # 统一的单源超时（任务书：20s）
@@ -41,6 +44,12 @@ def _human_error(exc: Exception) -> str:
 def _build_source(spec, proxy_mode: str, proxy_url: str):
     """按注册表定义构造源实例。type=api 直连，type=bridge 走本地桥。"""
     proxy = proxy_url if (proxy_mode == "proxy" and proxy_url) else None
+    if spec.type == "rss":
+        return GoogleNewsSource(spec, proxy_url=proxy, timeout=FETCH_TIMEOUT)
+    if spec.type == "json":
+        return WeiboHotSource(spec, proxy_url=proxy, timeout=FETCH_TIMEOUT)
+    if spec.type == "snapshot":
+        return SnapshotSource(spec, timeout=FETCH_TIMEOUT)
     if spec.type == "api":
         if spec.id == "sina":
             return SinaSource(spec, proxy_url=proxy, timeout=FETCH_TIMEOUT)

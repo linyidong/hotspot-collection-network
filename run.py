@@ -31,6 +31,19 @@ from app.sources.registry import SOURCES
 FETCH_ONCE = "--fetch-once" in sys.argv
 RUN_ONCE = "--run-once" in sys.argv
 NO_SCHEDULER = "--no-scheduler" in sys.argv
+PLATFORM_SNAPSHOT = "--platform-snapshot" in sys.argv
+
+# ===== 平台榜单快照模式：不启动服务、不占端口，只抓榜单 =====
+if PLATFORM_SNAPSHOT:
+    from app.platform import refresh, PAGES
+    print("正在用 headless Chrome 抓取平台榜单（约 1 分钟）…", flush=True)
+    snap = refresh(PAGES, per_page=20)
+    for k, v in (snap.get("pages") or {}).items():
+        print(f"  {v.get('label', k):20s} {len(v.get('items') or []):2d} 条")
+    for k, e in (snap.get("errors") or {}).items():
+        print(f"  失败 {k}: {e}")
+    print(f"快照时间：{snap.get('ts')} → data/platform_snapshot.json")
+    sys.exit(0)
 
 # --deep-limit N：本轮深加工上限（T5；默认取 config.DEEP_LIMIT_PER_RUN）
 DEEP_LIMIT = None
@@ -55,7 +68,7 @@ except OSError as e:
     sys.exit(1)
 
 # ===== 4. 端口占用检查（仅正式启动服务时；--fetch-once / --run-once 不占端口）=====
-if not FETCH_ONCE and not RUN_ONCE:
+if not FETCH_ONCE and not RUN_ONCE and not PLATFORM_SNAPSHOT:
     _port = settings.port
     _sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
