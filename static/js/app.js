@@ -746,6 +746,26 @@
     return { g: g, L: g.querySelector(".colL"), R: g.querySelector(".colR"),
              C3: g.querySelector(".col3") };
   }
+  // 三列时锁住地球区域宽度（地球不变形，画板盖在上面）
+  function lockCen(on) {
+    var cen = $("cen"), main = document.querySelector("main"), aside = document.querySelector("aside");
+    if (!cen || !main) return;
+    if (on) {
+      var asideW = aside ? aside.offsetWidth : 0;
+      var gridW = Math.min(1060, Math.max(560, window.innerWidth * 0.48));  // 两列时网格宽度
+      var w = Math.max(320, main.clientWidth - 20 - asideW - gridW - 20);
+      cen.style.flex = "0 0 auto";
+      cen.style.width = w + "px";
+    } else {
+      cen.style.flex = "";
+      cen.style.width = "";
+    }
+  }
+  window.addEventListener("resize", function () {
+    var g = $("grid");
+    if (g && g.classList.contains("three")) lockCen(true);
+  });
+
   // 开启 / 收起第三列
   function ensureCol3(on) {
     var g = $("grid");
@@ -755,11 +775,13 @@
       c3.className = "col3";
       g.appendChild(c3);
       g.classList.add("three");
+      lockCen(true);            // 地球保持原尺寸
       return c3;
     }
     if (!on && c3 && !c3.children.length) {
       g.removeChild(c3);
       g.classList.remove("three");
+      lockCen(false);           // 恢复自适应
       return null;
     }
     return c3;

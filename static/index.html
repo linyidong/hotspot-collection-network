@@ -104,7 +104,7 @@ header h1{font-size:16px;color:#eaf2ff;letter-spacing:1px;white-space:nowrap}
 #budgetBanner.hard{color:#ffb020;background:rgba(245,166,35,.12);border-bottom:1px solid rgba(245,166,35,.35)}
 #budgetBanner.soft{color:#f5c542;background:rgba(245,197,66,.1);border-bottom:1px solid rgba(245,197,66,.3)}
 /* 主体 */
-main{flex:1;min-height:0;display:flex;gap:10px;padding:10px}
+main{flex:1;min-height:0;display:flex;gap:10px;padding:10px;position:relative}
 /* 左抽屉 */
 #drw{width:clamp(180px,13.5vw,240px);flex:none;background:rgba(255,255,255,.035);border:1px solid rgba(120,180,255,.14);border-radius:8px;display:flex;flex-direction:column;transition:width .2s;overflow:hidden}
 #drw.coll{width:36px;min-width:36px}
@@ -141,7 +141,9 @@ main{flex:1;min-height:0;display:flex;gap:10px;padding:10px}
 #grid{width:clamp(560px,48vw,1060px);flex:none;display:flex;gap:10px;min-height:0}
 .colL,.colR,.col3{flex:1 1 0;display:flex;flex-direction:column;gap:10px;min-height:0;min-width:0}
 .colL>.panel,.colR>.panel,.col3>.panel{flex:1 1 0;min-height:0}
-#grid.three{width:clamp(760px,66vw,1500px)}
+#grid.three{position:absolute;right:10px;top:10px;bottom:10px;width:clamp(760px,66vw,1500px);
+  z-index:20;background:rgba(6,10,18,.92);border-radius:10px;padding:0}
+#grid.three .panel{background:#0a1220}
 .panel.removed{display:none}
 .panel{position:relative;min-width:0;background:rgba(255,255,255,.035);transition:border-color .15s,box-shadow .15s;border:1px solid rgba(120,180,255,.14);border-radius:8px;padding:7px;display:flex;flex-direction:column;min-height:0}
 .pt{flex:none;display:flex;align-items:center;justify-content:space-between;font-size:12px;color:#9fb4d8;margin-bottom:6px}
