@@ -238,8 +238,11 @@ def main():
         f"30 天前的 llm_calls 剩余 {old_calls} 条")
 
     # ---------- 质量门 ----------
-    add("Q-01", "基准题报告存在", "未执行", "tools/baseline/ 有 report-gold.md / report-live.md（v0.5 历史报告，本轮未重跑）")
-    add("Q-02", "20 条样本至少 1 条 A/B（盲评）", "未执行", "需人工盲评")
+    add("Q-01", "基准题重跑（gold + live 各 20 条）", "通过",
+        "2026-10-21 重跑：gold ok15/rej4/skip1 ¥1.1949；live ok10/rej3/skip7 ¥0.7534；"
+        "报告 tools/baseline/report-gold.md / report-live.md")
+    add("Q-02", "20 条样本至少 1 条 A/B", "待人工确认",
+        "模型自评：gold B=7/C=8（A=0）、live B=3/C=7；需你盲读确认这些 B 是否成立")
     over = c.execute("""SELECT COUNT(*) c FROM analyses WHERE stage='deep' AND status='ok'
                         AND payload_json LIKE '%"confidence": "high"%'
                         AND payload_json LIKE '%"needs_license": true%'""").fetchone()["c"]
