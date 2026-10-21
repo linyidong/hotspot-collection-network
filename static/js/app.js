@@ -739,6 +739,7 @@
         if (v && typeof v.w === "number") w = v.w;
         else if (v && v.length === 2) w = Math.max(0.5, Math.min(6, +v[1] || 1));
         p.__w = w;
+        p.__w0 = Math.max(1, w);
         p.style.flexGrow = w;
         p.style.flexBasis = "0";
       });
@@ -766,9 +767,10 @@
           var pos = items.indexOf(p);
           var followers = items.slice(pos + 1);
           var colH = col.getBoundingClientRect().height - 10 * Math.max(0, items.length - 1);
-          var total = items.reduce(function (x, y) { return x + (y.__w || 1); }, 0) || 1;
+          var total = items.reduce(function (x, y) { return x + (y.__w0 || y.__w || 1); }, 0) || 1;
           var startW = p.__w || 1;
-          var fStart = followers.map(function (x) { return x.__w || 1; });
+          var fStart = followers.map(function (x) { return x.__w0 || x.__w || 1; });
+          var fWasHidden = followers.map(function (x) { return x.classList.contains("removed"); });
           var startY = e.clientY;
           var MINW = 0.3;
           var cap = startW + fStart.reduce(function (x, y) { return x + Math.max(0, y - MINW); }, 0);
@@ -780,19 +782,36 @@
             p.__w = w;
             var need = w - startW;
             followers.forEach(function (x, i) {
+              if (x.classList.contains("removed")) return;
               var avail = Math.max(0, fStart[i] - MINW);
               var take = Math.max(0, Math.min(avail, need));
               x.__w = fStart[i] - take;
               need -= take;
             });
-            items.forEach(function (x) { x.style.flexGrow = x.__w || 1; });
+            items.forEach(function (x) {
+              if (!x.classList.contains("removed")) x.style.flexGrow = x.__w || 1;
+            });
           }
           function onUp() {
             document.removeEventListener("mousemove", onMove);
             document.removeEventListener("mouseup", onUp);
             p.classList.remove("resizing");
-            followers.forEach(function (x) {
-              if ((x.__w || 1) <= MINW + 0.01 && window.__panelHide) window.__panelHide(x);
+            // 松手后重新分配：被挤掉的空间（含被移除的）按顺序还给下方各面板
+            var remaining = Math.max(0, total - p.__w);
+            followers.forEach(function (x, i) {
+              var want = Math.min(fStart[i], remaining);
+              if (want >= 0.45) {
+                x.__w = want;
+                remaining -= want;
+                if (x.classList.contains("removed") && window.__panelShow) window.__panelShow(x);
+              } else {
+                x.__w = MINW;
+                remaining = Math.max(0, remaining - MINW);
+                if (!fWasHidden[i] && !x.classList.contains("removed") && window.__panelHide) {
+                  window.__panelHide(x);
+                }
+              }
+              x.style.flexGrow = x.__w || 1;
             });
             saveSize();
           }
@@ -822,6 +841,13 @@
       return span ? span.textContent.trim() : (p.querySelector(".pc") || {}).id || "面板";
     }
     // 供拉伸逻辑调用：某块被挤到没有高度 → 自动移除
+    window.__panelShow = function (panel) {
+      var pc = panel && panel.querySelector(".pc");
+      if (!pc) return;
+      panel.classList.remove("removed");
+      delete HID[pc.id];
+      save();
+    };
     window.__panelHide = function (panel) {
       var pc = panel && panel.querySelector(".pc");
       if (!pc) return;
