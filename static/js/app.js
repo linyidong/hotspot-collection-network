@@ -671,13 +671,17 @@
         e.preventDefault();
         p.classList.remove("target");
         if (!dragEl || dragEl === p) return;
-        var parent = p.parentNode;                 // 只在同一列内换位，不跨列
-        if (!parent || dragEl.parentNode !== parent) return;
+        var parent = p.parentNode;                 // 允许跨列：拖到哪列就进哪列
+        if (!parent) return;
         var kids = [].slice.call(parent.children);
         var i = kids.indexOf(dragEl), j = kids.indexOf(p);
-        if (i < 0 || j < 0) return;
-        if (i < j) parent.insertBefore(dragEl, p.nextSibling);
+        if (j < 0) return;
+        if (i >= 0 && i < j) parent.insertBefore(dragEl, p.nextSibling);
         else parent.insertBefore(dragEl, p);
+        // 换列后重置权重为 1，并重新分配两列
+        dragEl.__w = 1; dragEl.__w0 = 1; dragEl.style.flexGrow = 1;
+        saveSize();
+        colMapSave();
         dragEl = null;
         saveOrder();
       });
@@ -748,6 +752,25 @@
       col.__total = sum || 1;
     });
   }
+  // 某列面板明显少于对面列时，从对面列末尾搬一块过来（填满空位）
+  function autoFill(col) {
+    var c = cols();
+    if (!c) return;
+    var other = col === c.L ? c.R : c.L;
+    var mine = Array.prototype.slice.call(col.children).filter(function (x) {
+      return !x.classList.contains("removed");
+    });
+    var theirs = Array.prototype.slice.call(other.children).filter(function (x) {
+      return !x.classList.contains("removed");
+    });
+    if (theirs.length - mine.length < 2 || !theirs.length) return;
+    var move = theirs[theirs.length - 1];
+    col.appendChild(move);
+    move.__w = 1; move.__w0 = 1;
+    move.style.flexGrow = 1;
+    move.classList.remove("resizing");
+  }
+
   function initResize() {
     var c = cols();
     if (!c || c.g.__rsz) return;
@@ -794,6 +817,7 @@
             followers.forEach(function (x) {
               if ((x.__w || 1) <= MINW + 0.01 && window.__panelHide) window.__panelHide(x);
             });
+            if ((p.__w || 1) < startW - 0.05) autoFill(col);   // 只有缩小腾出空间时才补位
             saveSize();
           }
           document.addEventListener("mousemove", onMove);
