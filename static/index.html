@@ -188,9 +188,8 @@ footer b{color:#9fb4d8}
   font-size:13px;cursor:pointer;flex:none}
 .pt .xrm:hover{border-color:#ff6b6b;color:#ff8b8b;background:rgba(255,90,90,.12)}
 /* 右侧「已移除面板」列表 */
-#removedBox{position:fixed;right:14px;bottom:44px;width:190px;background:rgba(10,18,32,.95);
-  border:1px solid rgba(120,180,255,.28);border-radius:8px;padding:8px 10px;display:none;z-index:55;
-  box-shadow:0 6px 20px rgba(0,0,0,.45)}
+#removedBox{background:rgba(10,18,32,.6);border:1px solid rgba(120,180,255,.22);
+  border-radius:6px;padding:7px 8px;display:none}
 #removedBox.show{display:block}
 #removedBox .rb-t{font-size:11px;color:#8fa3c4;margin-bottom:6px}
 #removedBox .rb-i{display:block;width:100%;text-align:left;font-size:12px;color:#cfe3ff;background:rgba(120,180,255,.1);
@@ -249,6 +248,10 @@ footer b{color:#9fb4d8}
       <div><div class="g-t">采集来源 <em>实时</em></div>
         <div id="srcList" class="srclist"><div class="srcrow dim">加载中…</div></div></div>
       <button id="resetLayout" class="op" style="margin-top:10px">重置面板布局</button>
+      <div id="removedBox" style="margin-top:8px">
+        <div class="rb-t">已移除的面板（点击恢复）</div>
+        <div id="rbList"></div>
+      </div>
     </div>
     <div class="dico"><span>时</span><span>段</span><span>业</span><span>级</span></div>
   </aside>
@@ -281,10 +284,6 @@ footer b{color:#9fb4d8}
   <span id="fsrc">数据源 —/8</span><span id="fbatch">最新批次 #—</span>
   <span id="fdur">本轮 —</span><span>实时数据 · 60s 自动刷新</span>
 </footer>
-<div id="removedBox">
-  <div class="rb-t">已移除的面板（点击恢复）</div>
-  <div id="rbList"></div>
-</div>
 <div id="toast"></div>
 <!-- 备忘录/收藏 弹层 -->
 <div id="pop" class="pop">
