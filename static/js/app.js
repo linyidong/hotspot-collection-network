@@ -780,13 +780,7 @@
     }
     function updateHint() {
       var keys = Object.keys(HID).filter(function (k) { return HID[k]; });
-      var box = $("hiddenHint");
-      if (box) {
-        box.style.display = keys.length > 0 ? "block" : "none";
-        var el = $("hidN");
-        if (el) el.textContent = keys.length;
-      }
-      // 右侧：列出被移除面板的名字，点名字单独恢复
+      // 只在右下角浮层列出被移除面板的名字，点名字单独恢复
       var rb = $("removedBox"), rl = $("rbList");
       if (!rb || !rl) return;
       rb.classList.toggle("show", keys.length > 0);
@@ -828,17 +822,6 @@
       head.appendChild(b);
       if (HID[key]) p.classList.add("removed");
     });
-    var rb = $("restorePanels");
-    if (rb) {
-      rb.onclick = function () {
-        HID = {};
-        try { localStorage.removeItem("hcn_panel_hidden"); } catch (e) {}
-        Array.prototype.forEach.call(grid.querySelectorAll(".panel.removed"), function (p) {
-          p.classList.remove("removed");
-        });
-        updateHint();
-      };
-    }
     updateHint();
   })();
   // 夜间模式切换（状态在 earth.js，这里只做按钮与文案）

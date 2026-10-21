@@ -97,6 +97,15 @@ button.ghost{background:rgba(120,180,255,.15);color:#cfe3ff;border:1px solid rgb
       <tbody id="srcBody"><tr><td colspan="6" style="color:#6b7a94">加载中…</td></tr></tbody>
     </table>
     <small>代理只填本地代理软件地址（如 http://127.0.0.1:7897）；本项目不解析订阅链接。</small>
+    <div style="margin-top:10px;font-size:12px;line-height:1.8;color:#9fb4d8;background:rgba(120,180,255,.06);
+         border:1px solid rgba(120,180,255,.18);border-radius:6px;padding:10px 12px">
+      <b>代理怎么配才互不影响：</b><br>
+      · 直连型源（见闻3频道 / 新浪 / Google新闻×5 / 微博）= 本页「直连/代理」按钮生效<br>
+      · 桥接型源（财联社 / 东财 / 同花顺 / 金十 / 见闻RSS）= 由 8053 桥进程抓取，<b>不吃单源代理设置</b><br>
+      · 平台榜单（Amazon）= 由本机 Chrome 抓取，也不吃单源设置<br>
+      <b>推荐做法</b>：代理软件开「规则模式」（国内直连、国外走节点），本项目保持全部「直连」即可。<br>
+      详见 <a href="/static/../docs/代理配置指南.md" style="color:#7fe6f5">docs/代理配置指南.md</a>
+    </div>
   </section>
 </main>
 <div class="bar">
