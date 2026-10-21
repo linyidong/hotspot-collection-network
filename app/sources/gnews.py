@@ -14,6 +14,16 @@ import httpx
 from .base import BaseSource, RawItem
 
 
+# 必应降级时，某些关键词可能返回空 → 用同义变体依次尝试
+QUERY_ALTS = {
+    "跨境电商": ["跨境电商 出海", "跨境 电商", "跨境贸易"],
+    "选品 爆款": ["选品", "爆款 选品", "热销选品"],
+    "关税 出海": ["关税 出海", "关税 出口"],
+    "TikTok Shop Shopee Temu": ["TikTok Shop Shopee Temu", "跨境电商平台 政策"],
+    "海外仓 物流": ["海外仓 物流", "海外仓"],
+}
+
+
 class GoogleNewsSource(BaseSource):
     """Google News 关键词 RSS。"""
 
@@ -21,17 +31,92 @@ class GoogleNewsSource(BaseSource):
         super().__init__(spec, timeout=timeout)
         self.proxy_url = proxy_url
 
+    def _fetch_bing(self, headers: dict) -> list:
+        """备用源：必应新闻 RSS（同一关键词）。"""
+        import re
+        from urllib.parse import quote
+        import time as _time
+        base = self.spec.channel or ""
+        queries = QUERY_ALTS.get(base, [base])
+        if base not in queries:
+            queries = [base] + queries
+        feed = None
+        with httpx.Client(timeout=self.timeout, proxy=self.proxy_url,
+                          follow_redirects=True) as client:
+            for q in queries:
+                url = ("https://www.bing.com/news/search?q=" + quote(q)
+                       + "&format=RSS&setlang=zh-cn")
+                for attempt in range(2):
+                    try:
+                        resp = client.get(url, headers=headers)
+                        break
+                    except Exception:
+                        resp = None
+                        _time.sleep(1.0 + attempt)
+                if resp is None or resp.status_code != 200:
+                    continue
+                f = feedparser.parse(resp.content)
+                if f.entries:
+                    feed = f
+                    break
+                _time.sleep(0.6)
+        if feed is None:
+            raise ValueError("必应新闻 RSS 无条目（已尝试多个关键词变体）")
+        out = []
+        for ent in feed.entries[:40]:
+            title = (ent.get("title") or "").strip()
+            link = (ent.get("link") or "").strip()
+            if not title or not link:
+                continue
+            summary = re.sub(r"<[^>]+>", "", ent.get("summary") or "").strip()
+            published = ""
+            ts = ent.get("published_parsed") or ent.get("updated_parsed")
+            if ts:
+                try:
+                    published = datetime.fromtimestamp(mktime(ts)).strftime("%Y-%m-%d %H:%M:%S")
+                except (ValueError, OverflowError):
+                    published = ""
+            out.append(RawItem(title=title, url=link, summary=summary,
+                               published_at=published, source_id=self.spec.id,
+                               extra={"via": "bing"}))
+        if not out:
+            raise ValueError("必应新闻 RSS 无条目")
+        return out
+
     def fetch(self) -> list:
+        import random
+        import time as _time0
+        _time0.sleep(random.uniform(0, 1.5))     # 错峰：5 个源不要同时打同一站点
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                           "AppleWebKit/537.36 Chrome/124.0 Safari/537.36",
             "Accept": "application/rss+xml,application/xml,text/xml,*/*",
         }
+        import time as _time
+        raw = None
+        last_err = None
         with httpx.Client(timeout=self.timeout, proxy=self.proxy_url,
                           follow_redirects=True) as client:
-            resp = client.get(self.spec.url, headers=headers)
-            resp.raise_for_status()
-            raw = resp.content
+            for attempt in range(3):
+                try:
+                    resp = client.get(self.spec.url, headers=headers)
+                    if resp.status_code in (429, 500, 502, 503, 504):
+                        last_err = f"HTTP {resp.status_code}（Google 限流/上游错误）"
+                        _time.sleep(1.5 * (attempt + 1) + 0.7 * attempt)
+                        continue
+                    resp.raise_for_status()
+                    raw = resp.content
+                    break
+                except httpx.HTTPError as exc:
+                    last_err = f"{type(exc).__name__}: {exc}"
+                    _time.sleep(1.2 * (attempt + 1))
+        if raw is None:
+            # Google 整体 503（IP 级限流）时，自动降级到必应新闻 RSS
+            try:
+                return self._fetch_bing(headers)
+            except Exception as exc:
+                raise ValueError(
+                    f"Google News 重试 3 次仍失败（{last_err}），必应备用源也失败（{exc}）")
 
         feed = feedparser.parse(raw)
         if getattr(feed, "bozo", 0) and not getattr(feed, "entries", None):

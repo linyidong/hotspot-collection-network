@@ -485,5 +485,22 @@ def run_once(deep_limit: int = None, trigger: str = "手动") -> dict:
         stats["batch_id"] = batch_id
         stats["status"] = status
         return stats
+    except Exception as exc:                      # 任何中途异常都要落库，不能只留空批次
+        bid = locals().get("batch_id")
+        stats["duration_s"] = round(time.time() - t0, 1)
+        stats["error"] = f"{type(exc).__name__}: {exc}"
+        stats["note"] = "本轮中途失败，已记录原因；请查看控制台日志后重试，或手动「一键采集」"
+        try:
+            if bid:
+                conn.execute(
+                    "UPDATE batches SET finished_at=?, status='failed', stats_json=? WHERE id=?",
+                    (_now(), json.dumps(stats, ensure_ascii=False), bid))
+            conn.commit()
+        except Exception:
+            pass
+        stats["batch_id"] = bid
+        stats["status"] = "failed"
+        print(f"[批次 #{bid}] 失败：{stats['error']}", flush=True)
+        return stats
     finally:
         conn.close()
