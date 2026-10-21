@@ -53,3 +53,48 @@ data/app.db         # 数据库（首次启动自动生成，不进 git）
 - 关闭启动窗口 = 停止服务；窗口里的日志就是运行日志
 
 > 注意：`.cmd` 文件是 **GBK 编码**，用编辑器修改时请保持 GBK（或另存为 ANSI），否则中文会乱码、命令可能被截断。
+
+## 四、如何换源（新增 / 停用 / 走代理）
+
+**日常操作（不用改代码）**
+- 大屏左侧「采集来源」每行右侧有「直连 / 代理」按钮，点一下即切换，**下一轮生效**。
+- 设置页（`/static/settings.html`）可批量勾选启用/停用。
+
+**新增一个数据源（要改代码）**
+
+1. 在 `app/sources/registry.py` 的 `SOURCES` 里加一条 `SourceSpec`：
+   - `type="api"`：直连型（参考 `wallstcn.py` / `sina.py`）
+   - `type="bridge"`：走本地 RSS 桥（参考 `third_party/china-finance-rss/server.py` 里已有的路由）
+2. 直连型还要在 `app/sources/collect.py` 的 `_build_source()` 里分发到你的适配器。
+3. 重启服务（`停止.cmd` → `启动.cmd`）。启动时会按 `name` 幂等写入 `sources` 表，
+   **不会覆盖你已改过的开关/代理设置**。
+
+> 注意：源必须能直连或能走本地代理；不可达时会在「采集来源」标红并在日志页列进「失败源」。
+
+## 五、如何改提示词
+
+- 粗筛：`prompts/coarse.md`；深加工：`prompts/deep.md`
+- 文件顶部有 `<!-- version: x.y -->`，**每次改动必须递增**，并记一笔到 `docs/prompt-log.md`（改了什么、合格率变化、典型反例）。
+- 改完用基准题对比，不要凭感觉：
+  ```bash
+  python tools/baseline_test.py --set gold
+  python tools/baseline_test.py --set live
+  ```
+  报告输出在 `tools/baseline/report-gold.md` / `report-live.md`。
+- **底线**：`app/validate.py` 的 12 条校验（含 r11 能力闸）不要为了让样本通过而放宽。
+  校验太严导致大屏没内容时，正确做法是改提示词，不是关校验。
+
+## 六、备份与恢复
+
+- **自动**：每天 03:30 备份到 `data/backups/app-YYYYmmdd-HHMMSS.db`，只保留最近 **7 份**；
+  服务启动时若发现超过 24 小时没有备份，会自动补一份。
+- **手动备份**：
+  ```bash
+  python -c "from app.backup import run; print(run())"
+  ```
+- **恢复**：
+  1. `停止.cmd` 停服务
+  2. 把 `data/app.db` 改名留底（如 `app.db.before-restore`）
+  3. 复制一份备份为 `data/app.db`
+  4. `启动.cmd`，打开大屏核对批次与线索数
+- 备份使用 SQLite 在线备份 API（WAL 安全），并做 `PRAGMA quick_check` 校验，损坏的备份会被删除。

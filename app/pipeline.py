@@ -83,12 +83,34 @@ def title_similar(a: str, b: str) -> float:
     return SequenceMatcher(None, a or "", b or "").ratio()
 
 
-def mark_duplicates(rows: list) -> int:
-    """批内去重：rows 为 [(item_id, url, title)] 按插入序；返回重复条数。
-    保留先出现者：归一化 URL 相同 或 标题相似度 ≥0.9 → is_duplicate=1、duplicate_of=保留 id。"""
+def mark_duplicates(rows: list, batch_id: int = None, cross_days: int = 7) -> int:
+    """批内 + 跨批次去重：rows 为 [(item_id, url, title)] 按插入序；返回重复条数。
+    保留先出现者：归一化 URL 相同 或 标题相似度 ≥0.9 → is_duplicate=1、duplicate_of=保留 id。
+    跨批次：同 url_hash 在最近 cross_days 天的旧批次里出现过，同样判重（避免同一新闻反复花钱）。"""
     conn = db.get_conn()
     n_dup = 0
     try:
+        # 跨批次：先取最近 N 天其它批次已入库的 url_hash → id
+        old = {}
+        if batch_id is not None:
+            for r in conn.execute(
+                    "SELECT url_hash, MIN(id) AS fid FROM items "
+                    "WHERE batch_id != ? AND url_hash IS NOT NULL AND url_hash != '' "
+                    "AND published_at >= datetime('now','localtime',?) "
+                    "GROUP BY url_hash", (batch_id, f"-{int(cross_days)} day")).fetchall():
+                old[r["url_hash"]] = r["fid"]
+        if old:
+            for i, row in enumerate(rows):
+                if row[2] is None or not row[1]:
+                    continue
+                h = url_hash(row[1])
+                if h and h in old:
+                    conn.execute("UPDATE items SET is_duplicate=1, duplicate_of=? WHERE id=?",
+                                 (old[h], row[0]))
+                    rows[i] = (None, None, None)
+                    n_dup += 1
+            conn.commit()
+
         for i in range(len(rows)):
             if rows[i][2] is None:          # 已被标记重复，跳过
                 continue
@@ -332,7 +354,7 @@ def run_once(deep_limit: int = None, trigger: str = "手动") -> dict:
         conn.commit()
 
         # 4) 去重（标记 is_duplicate / duplicate_of）
-        stats["after_dedup"] = stats["fetched"] - mark_duplicates(rows_for_dedup)
+        stats["after_dedup"] = stats["fetched"] - mark_duplicates(rows_for_dedup, batch_id)
 
         # 5) 粗筛（非重复条，并发 6，失败重试 1 次；预算硬停时整轮跳过）
         if stats["after_dedup"] > 0 and budget_mode != "hard":

@@ -22,6 +22,9 @@ DEFAULTS = {
     "item_retention_days": 90,
 }
 
+# 已知可用的模型名（新增模型时在这里补一行；写错名字会在保存时被拒）
+KNOWN_MODELS = ["deepseek-flash", "deepseek-v4-pro", "deepseek-chat", "deepseek-reasoner"]
+
 # 允许写入的键 + 类型/范围
 _RULES = {
     "coarse_model": (str, None),
@@ -65,6 +68,14 @@ def save(updates: dict) -> tuple:
         if rng and not (rng[0] <= value <= rng[1]):
             return False, f"{key} 超出范围 {rng[0]}–{rng[1]}"
         data[key] = value
+    for key in ("coarse_model", "deep_model"):
+        name = str(data.get(key) or "").strip()
+        if not name:
+            return False, f"{key} 不能为空"
+        if name not in KNOWN_MODELS:
+            return False, (f"{key} 不是已知模型：{name}。"
+                           f"可用：{'、'.join(KNOWN_MODELS)}（如需新增请在 settings_store.KNOWN_MODELS 补充）")
+        data[key] = name
     if data["budget_hard_ratio"] >= data["budget_stop_ratio"]:
         return False, "硬停阈值必须小于软停阈值（hard < stop）"
     CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)

@@ -92,6 +92,16 @@ def _interval_minutes() -> int:
         return 0
 
 
+def _backup_now():
+    """每日数据库备份（保留 7 份）：失败只记日志，不影响采集。"""
+    try:
+        from .backup import run as backup_run
+        r = backup_run()
+        print(f"[备份] 已生成 {r['path']}（{r['size'] // 1024} KB，保留 {r['kept']} 份，清理 {r['pruned']} 份）", flush=True)
+    except Exception as exc:
+        print(f"[备份] 失败（不影响采集）：{type(exc).__name__}: {exc}", flush=True)
+
+
 def _cleanup_now():
     """过期数据清理：失败只记日志，绝不影响采集。"""
     try:
@@ -127,11 +137,24 @@ def start(deep_limit=None):
         note = "每日 08/11/14/17/20/23"
 
     # 每日过期数据清理（04:05，失败只记日志）
+    sched.add_job(_backup_now, CronTrigger(hour=3, minute=30), id="backup_daily",
+                  max_instances=1, coalesce=True)
+
     sched.add_job(_cleanup_now, CronTrigger(hour=4, minute=5), id="cleanup_daily",
                   max_instances=1, coalesce=True)
 
     sched.start()
     # 启动清理：立即补一次过期数据清理
+    # 启动补备份：超过 24 小时没有备份就补一份
+    try:
+        from .backup import last_backup
+        import time as _t
+        lb = last_backup()
+        if lb is None or (_t.time() - lb.stat().st_mtime) > 86400:
+            _backup_now()
+    except Exception as exc:
+        print(f"[备份] 启动检查失败：{exc}", flush=True)
+
     _cleanup_now()
     job = sched.get_jobs()[0]
     STATE["next_run_at"] = job.next_run_time.strftime("%Y-%m-%d %H:%M:%S") if job.next_run_time else None

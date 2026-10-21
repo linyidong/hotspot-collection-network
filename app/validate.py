@@ -10,6 +10,8 @@ import re
 OPPORTUNITY_STAGES = ["S1", "S2", "S3", "S4"]
 FACT_BANNED_PREFIXES = ["据悉", "业内人士称", "有消息称", "据称"]
 QUERY_ONLY_WORDS = ["查", "查阅", "下载", "调取", "阅读", "检索", "搜索", "浏览"]
+# 「只看不动」类词：出现且无交易动作 → 判废话（r6）
+WATCH_ONLY_WORDS = ["关注", "留意", "观察", "观望", "跟踪动态", "持续关注"]
 TRADE_ACTION_WORDS = ["联系", "报价", "询盘", "发信", "开发信", "打电话", "注册",
                       "寄样", "下单", "签约", "拜访"]
 SPECULATION_WORDS = ["可能", "或将", "预示", "预计"]
@@ -139,9 +141,12 @@ def validate_deep_card(res: dict) -> tuple:
             reasons.append("r1_字段不齐:next_action.action 为空")
         else:
             query_only = any(q in action for q in QUERY_ONLY_WORDS)
+            watch_only = any(w in action for w in WATCH_ONLY_WORDS)
             trade_ctx = (na.get("target") or "") + (na.get("how") or "")
             has_trade = any(t in action or t in trade_ctx for t in TRADE_ACTION_WORDS)
-            if query_only and not has_trade:
+            if watch_only and not has_trade:
+                reasons.append(f"r6_下一步只有「关注/留意」(action={action})，无交易动作")
+            elif query_only and not has_trade:
                 reasons.append(f"r6_下一步只是查资料(action={action})，无交易动作")
     else:
         reasons.append("r1_字段不齐:next_action 缺失")

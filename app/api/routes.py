@@ -270,6 +270,12 @@ def create_app() -> FastAPI:
             return {"ok": False, "error": "enabled 必须是 true/false"}
         if proxy_mode is not None and proxy_mode not in PROXY_MODES:
             return {"ok": False, "error": "proxy_mode 必须是 direct 或 proxy"}
+        if proxy_mode == "proxy" and proxy_url:
+            u = str(proxy_url).strip()
+            if not (u.startswith("http://") or u.startswith("https://")) or " " in u:
+                return JSONResponse(status_code=400, content={
+                    "ok": False,
+                    "error": "代理地址必须以 http:// 或 https:// 开头，例如 http://127.0.0.1:7897"})
 
         conn = db.get_conn()
         try:
