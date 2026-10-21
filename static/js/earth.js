@@ -321,6 +321,9 @@
       var saved = localStorage.getItem("hcn_night");
       var hr = new Date().getHours();
       nightTarget = saved === null ? ((hr >= 19 || hr < 6) ? 1 : 0) : (saved === "1" ? 1 : 0);
+      // URL 参数优先：?night=1 / ?night=0（便于验收与分享）
+      var mNight = (location.search || "").match(/[?&]night=([01])/);
+      if (mNight) nightTarget = mNight[1] === "1" ? 1 : 0;
       nightMode = nightTarget;
       if (baseMat) baseMat.uniforms.uNightMode.value = nightMode;
       if (cloudMat) cloudMat.uniforms.uNight.value = nightMode;
@@ -459,12 +462,23 @@
 
       // 光点呼吸 + 脉冲环（呼吸缩放作用于 g，环在 g 内抵消世界缩放）
       hot.forEach(function (h) {
+        var nk = 1 - nightMode * 0.55;                 // 夜间整体缩小
         var br = h.base * (1 + 0.10 * Math.sin(t * 2.1 + h.ph * 6.283));
         h.g.scale.setScalar(br);
-        h.spr.scale.setScalar(h.hover ? h.base * 1.3 : h.base);
+        // 夜间：光晕/炫光/亮核全部收紧变淡，避免夜里一团刺眼白光
+        h.spr.scale.setScalar(h.base * (h.hover ? 1.3 : 1) * (1 - nightMode * 0.74));
+        h.spr.material.opacity = 0.85 * (1 - nightMode * 0.72);
+        if (h.flare) {
+          h.flare.scale.setScalar(h.base * 4.0 * (1 - nightMode * 0.68));
+          h.flare.material.opacity = 0.42 * (1 - nightMode * 0.6);
+        }
+        if (h.core) {
+          h.core.scale.setScalar(Math.max(0.22, 1 - nightMode * 0.78));
+          h.core.material.opacity = 0.95 * (1 - nightMode);   // 夜间完全关闭亮核
+        }
         var k = (now * 0.0008 + h.ph) % 1, s = 0.3 + k * 0.95;
         h.ring.scale.set(s / br, s / br, 1);
-        h.ring.material.opacity = 0.7 * (1 - k);
+        h.ring.material.opacity = 0.7 * (1 - k) * nk;
         h.ring.quaternion.copy(cam.quaternion);
       });
       lines.forEach(function (L) {
@@ -539,7 +553,7 @@
         var kk = rp.life / 1.2;
         if (kk >= 1) { globe.remove(rp.mesh); rp.mesh.geometry.dispose(); rp.mesh.material.dispose(); ripples.splice(r3, 1); continue; }
         rp.mesh.scale.setScalar(0.10 * (1 + kk * 2.8));
-        rp.mesh.material.opacity = (1 - kk) * 0.85;
+        rp.mesh.material.opacity = (1 - kk) * 0.85 * (1 - nightMode * 0.85);
       }
 
       // 悬停检测（节流 ~每 4 帧）
@@ -714,12 +728,9 @@
         var dot = new THREE.Mesh(new THREE.SphereGeometry(0.014, 10, 10),
           new THREE.MeshBasicMaterial({ color: baseCol, blending: THREE.AdditiveBlending, depthWrite: false }));
         dot.renderOrder = 4;
-        var glow = new THREE.Sprite(new THREE.SpriteMaterial({
-          map: glowTex, color: 0x7fd8ff, transparent: true, opacity: 0.6,
-          blending: THREE.AdditiveBlending, depthWrite: false
-        }));
-        glow.scale.setScalar(0.09); glow.renderOrder = 3;
-        globe.add(L, dot, glow);
+        // 不再给每条弧线加起点光晕：多条弧共起点时会叠加成一个大白球
+        var glow = null;
+        globe.add(L, dot);
         lines.push({ c: c, dot: dot, L: L, glow: glow, ph: i * 0.31,
                      geo: lg, colors: lg.getAttribute("color"), baseCol: baseCol });
       });
