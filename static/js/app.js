@@ -652,6 +652,7 @@
         // 只有按住标题栏才能拖，避免干扰卡片内点击/选择
         if (!p.__canDrag) { e.preventDefault(); return; }
         dragEl = p;
+        var dz = $("drop3"); if (dz) dz.classList.add("on");
         p.classList.add("dragging");
         e.dataTransfer.effectAllowed = "move";
         try { e.dataTransfer.setData("text/plain", panelKey(p)); } catch (_) {}
@@ -659,6 +660,9 @@
       p.addEventListener("dragend", function () {
         p.classList.remove("dragging");
         dragEl = null;
+        var dz = $("drop3");
+        if (dz) { dz.classList.remove("on"); dz.classList.remove("hot"); }
+        collapseCol3IfEmpty();
         saveOrder();
       });
       p.addEventListener("dragover", function (e) {
@@ -686,6 +690,29 @@
         saveOrder();
       });
     });
+    // 页面最右侧的投放条：拖进来就开第三列
+    var dz = $("drop3");
+    if (dz) {
+      dz.addEventListener("dragover", function (e) {
+        if (!dragEl) return;
+        e.preventDefault();
+        dz.classList.add("hot");
+      });
+      dz.addEventListener("dragleave", function () { dz.classList.remove("hot"); });
+      dz.addEventListener("drop", function (e) {
+        e.preventDefault();
+        dz.classList.remove("hot");
+        if (!dragEl) return;
+        var c3 = ensureCol3(true);
+        c3.appendChild(dragEl);
+        dragEl.__w = 1; dragEl.__w0 = 1;
+        dragEl.style.flexGrow = 1;
+        dragEl.classList.remove("dragging");
+        dragEl = null;
+        saveSize();
+        colMapSave();
+      });
+    }
     restoreOrder();
   }
   initDrag();
@@ -701,26 +728,61 @@
       g.innerHTML = ""; g.appendChild(L); g.appendChild(R);
       var savedCols = {};
       try { savedCols = JSON.parse(localStorage.getItem("hcn_colmap") || "{}") || {}; } catch (e) {}
+      var need3 = Object.keys(savedCols).some(function (k) { return savedCols[k] === "3"; });
+      var C3 = null;
+      if (need3) {
+        C3 = document.createElement("div");
+        C3.className = "col3";
+        g.appendChild(C3);
+        g.classList.add("three");
+      }
       panels.forEach(function (p, i) {
         var k = panelKey(p);
         var side = savedCols[k] || (i % 2 === 0 ? "L" : "R");
-        (side === "R" ? R : L).appendChild(p);
+        if (side === "3" && C3) C3.appendChild(p);
+        else (side === "R" ? R : L).appendChild(p);
       });
     }
-    return { g: g, L: g.querySelector(".colL"), R: g.querySelector(".colR") };
+    return { g: g, L: g.querySelector(".colL"), R: g.querySelector(".colR"),
+             C3: g.querySelector(".col3") };
+  }
+  // 开启 / 收起第三列
+  function ensureCol3(on) {
+    var g = $("grid");
+    var c3 = g.querySelector(".col3");
+    if (on && !c3) {
+      c3 = document.createElement("div");
+      c3.className = "col3";
+      g.appendChild(c3);
+      g.classList.add("three");
+      return c3;
+    }
+    if (!on && c3 && !c3.children.length) {
+      g.removeChild(c3);
+      g.classList.remove("three");
+      return null;
+    }
+    return c3;
+  }
+  function collapseCol3IfEmpty() {
+    var g = $("grid");
+    var c3 = g.querySelector(".col3");
+    if (c3 && !c3.children.length) ensureCol3(false);
   }
   function colMapSave() {
     var c = cols(); var out = {};
-    [c.L, c.R].forEach(function (col, idx) {
+    [c.L, c.R, c.C3].forEach(function (col, idx) {
+      if (!col) return;
       Array.prototype.slice.call(col.children).forEach(function (p) {
-        var k = panelKey(p); if (k) out[k] = idx === 0 ? "L" : "R";
+        var k = panelKey(p); if (k) out[k] = idx === 0 ? "L" : (idx === 1 ? "R" : "3");
       });
     });
     try { localStorage.setItem("hcn_colmap", JSON.stringify(out)); } catch (e) {}
   }
   function saveSize() {
     var c = cols(); var out = {};
-    [c.L, c.R].forEach(function (col) {
+    [c.L, c.R, c.C3].forEach(function (col) {
+      if (!col) return;
       Array.prototype.slice.call(col.children).forEach(function (p) {
         var k = panelKey(p); if (!k) return;
         out[k] = { w: +(p.__w || 1).toFixed(2) };
@@ -736,7 +798,8 @@
     var c = cols();
     var saved = {};
     try { saved = JSON.parse(localStorage.getItem("hcn_panel_size") || "{}") || {}; } catch (e) { saved = {}; }
-    [c.L, c.R].forEach(function (col) {
+    var colsAll = [c.L, c.R, c.C3].filter(Boolean);
+    colsAll.forEach(function (col) {
       Array.prototype.slice.call(col.children).forEach(function (p) {
         var k = panelKey(p); if (!k) return;
         var v = saved[k], w = 1;
