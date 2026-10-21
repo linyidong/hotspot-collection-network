@@ -707,7 +707,7 @@
         var s = map[k];
         if (s && s.length === 2) {
           p.__col = Math.max(1, Math.min(4, +s[0] || 2));
-          p.__row = Math.max(1, Math.min(3, +s[1] || 1));
+          p.__row = Math.max(1, Math.min(4, +s[1] || 1));
         } else {
           p.__col = 2;   // 新版 4 列网格：默认每块占 2 列（一行两块）
           p.__row = 1;
@@ -735,6 +735,12 @@
         var gapX = parseFloat(cs.columnGap) || 10;
         var gapY = parseFloat(cs.rowGap) || 10;
         var colSpan = p.__col || 1, rowSpan = p.__row || 1;
+        // 当前网格行数：决定"最多能拉到第几行"（默认至少 4 行）
+        var maxRows = 1;
+        try {
+          var tpl = getComputedStyle(grid).gridTemplateRows || "";
+          maxRows = Math.max(tpl.trim() ? tpl.trim().split(/\s+/).length : 1, 4);
+        } catch (e2) { maxRows = 4; }
         // 用网格实际格子尺寸换算：面板当前宽高 ÷ 当前跨度（扣除 gap）得到单格尺寸
         var colW = (rect.width - gapX * (colSpan - 1)) / colSpan;
         var rowH = (rect.height - gapY * (rowSpan - 1)) / rowSpan;
@@ -742,7 +748,7 @@
         p.classList.add("resizing");
         function onMove(ev) {
           var nCol = Math.max(1, Math.min(4, Math.round(colSpan + (ev.clientX - sx) / colW)));
-          var nRow = Math.max(1, Math.min(3, Math.round(rowSpan + (ev.clientY - sy) / rowH)));
+          var nRow = Math.max(1, Math.min(maxRows, Math.round(rowSpan + (ev.clientY - sy) / rowH)));
           if (nCol !== p.__col || nRow !== p.__row) {
             p.__col = nCol; p.__row = nRow;
             p.style.gridColumn = "span " + nCol;
