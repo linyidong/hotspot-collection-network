@@ -34,11 +34,21 @@ header h1{font-size:16px;color:#eaf2ff;letter-spacing:1px;white-space:nowrap}
 /* 采集来源列表 */
 .srclist{display:flex;flex-direction:column;gap:3px;max-height:230px;overflow:auto;scrollbar-width:none}
 .srclist::-webkit-scrollbar{width:0;display:none}
-.srcrow{display:flex;align-items:center;gap:6px;font-size:11px;color:#9fb4d8;white-space:nowrap}
+.srcrow{display:flex;align-items:center;gap:7px;font-size:12.5px;color:#b6c6de;white-space:nowrap;padding:2px 0}
 .srcrow .d{width:6px;height:6px;border-radius:50%;flex:none;background:#6b7a94}
 .srcrow.ok .d{background:#2ecc8f}.srcrow.err .d{background:#ff5b5b}
-.srcrow .n{overflow:hidden;text-overflow:ellipsis}
-.srcrow .c{margin-left:auto;color:#6b7a94;font-family:Consolas,monospace;font-size:10px}
+.srcrow .n{overflow:hidden;text-overflow:ellipsis;font-size:12.5px;color:#dbe6f6}
+.srcrow .c{margin-left:auto;color:#7f90ab;font-family:Consolas,monospace;font-size:11px}
+/* 信号强度图标：4 根竖条，按状态点亮 */
+.sig{display:inline-flex;align-items:flex-end;gap:2px;height:13px;flex:none;margin-left:auto}
+.sig i{width:3px;border-radius:1px;background:rgba(120,140,170,.28)}
+.sig i:nth-child(1){height:4px}.sig i:nth-child(2){height:7px}
+.sig i:nth-child(3){height:10px}.sig i:nth-child(4){height:13px}
+.sig.ok i{background:#2ecc8f}
+.sig.warn i{background:#f5a623}
+.sig.err i{background:#ff5b5b}
+.sig.s0 i:nth-child(n+1),.sig.s1 i:nth-child(n+2),
+.sig.s2 i:nth-child(n+3),.sig.s3 i:nth-child(n+4){background:rgba(120,140,170,.28)}
 .srcrow .rg{font-size:9px;color:#7c8aa5;border:1px solid rgba(124,138,165,.4);border-radius:2px;padding:0 3px;flex:none}
 .srcrow .pm{font-size:9px;border:1px solid rgba(120,180,255,.4);background:transparent;color:#9fb4d8;
   border-radius:2px;padding:0 4px;cursor:pointer;flex:none;line-height:14px}
@@ -129,6 +139,7 @@ main{flex:1;min-height:0;display:flex;gap:10px;padding:10px}
 .i1{background:#4d9de0}.i2{background:#8a63f5}.i3{background:#f5a623}.i4{background:#2ecc8f}
 /* 右侧面板网格 2×3 */
 #grid{width:clamp(560px,48vw,1060px);flex:none;display:grid;grid-template-columns:1fr 1fr;grid-auto-rows:1fr;gap:10px;min-height:0}
+.panel.removed{display:none}
 .panel{position:relative;min-width:0;background:rgba(255,255,255,.035);transition:border-color .15s,box-shadow .15s;border:1px solid rgba(120,180,255,.14);border-radius:8px;padding:7px;display:flex;flex-direction:column;min-height:0}
 .pt{flex:none;display:flex;align-items:center;justify-content:space-between;font-size:12px;color:#9fb4d8;margin-bottom:6px}
 .cnt{font-size:10px;color:#7c8aa5;margin-left:6px;font-family:Consolas,monospace}
@@ -172,6 +183,12 @@ footer b{color:#9fb4d8}
 .panel.dragging{opacity:.45}
 .panel.target{border-color:#35d0e8;box-shadow:inset 0 0 0 1px rgba(53,208,232,.5)}
 .pt{cursor:grab;user-select:none}
+.pt .xrm{margin-left:6px;width:16px;height:16px;line-height:13px;text-align:center;padding:0;
+  border:1px solid rgba(120,180,255,.28);border-radius:3px;background:transparent;color:#8ba0bf;
+  font-size:13px;cursor:pointer;flex:none}
+.pt .xrm:hover{border-color:#ff6b6b;color:#ff8b8b;background:rgba(255,90,90,.12)}
+#hiddenHint{font-size:11px;color:#8fa3c4;margin-top:8px;display:none}
+#hiddenHint button{background:transparent;border:0;color:#7fe6f5;cursor:pointer;font-size:11px;text-decoration:underline;padding:0}
 .pt:active{cursor:grabbing}
 .panel .pt::before{content:"⠿";color:#4a5878;font-size:11px;margin-right:4px}
 /* 面板自由调节尺寸（右下角手柄，悬停显示） */
@@ -225,6 +242,7 @@ footer b{color:#9fb4d8}
       <div><div class="g-t">采集来源 <em>实时</em></div>
         <div id="srcList" class="srclist"><div class="srcrow dim">加载中…</div></div></div>
       <button id="resetLayout" class="op" style="margin-top:10px">重置面板布局</button>
+      <div id="hiddenHint">已移除 <b id="hidN">0</b> 个面板 · <button id="restorePanels">恢复显示</button></div>
     </div>
     <div class="dico"><span>时</span><span>段</span><span>业</span><span>级</span></div>
   </aside>

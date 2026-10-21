@@ -460,7 +460,14 @@
         '<button class="pm' + (isProxy ? " on" : "") + '" data-pm="' +
         (isProxy ? "direct" : "proxy") + '" title="点击切换为' +
         (isProxy ? "直连" : "代理") + '">' + (isProxy ? "代理" : "直连") + "</button>" +
-        '<span class="c">' + (s.last_count || 0) + "</span></div>";
+        (function () {
+          // 信号强度：ok 且条数充足=4 格，ok=3，异常=1，未采=0
+          var lv = s.status === "ok" ? ((s.last_count || 0) >= 20 ? 4 : 3)
+                 : (s.status === "never" ? 0 : 1);
+          var cls = s.status === "ok" ? "ok" : (s.status === "never" ? "" : "err");
+          return '<span class="sig ' + cls + " s" + lv + '" title="信号 ' + lv +
+            "/4 · 上次 " + (s.last_count || 0) + ' 条"><i></i><i></i><i></i><i></i></span>';
+        })() + "</div>";
     }).join("");
     Array.prototype.forEach.call(box.querySelectorAll("button.pm"), function (b) {
       b.onclick = function (ev) {
@@ -741,6 +748,58 @@
     restoreSize();
   }
   initResize();
+
+  // ===== 面板移除 / 恢复（× 按钮；重置或「恢复显示」可还原）=====
+  (function initPanelRemove() {
+    var grid = $("grid");
+    if (!grid) return;
+    var HID = {};
+    try { HID = JSON.parse(localStorage.getItem("hcn_panel_hidden") || "{}") || {}; } catch (e) { HID = {}; }
+    function save() {
+      try { localStorage.setItem("hcn_panel_hidden", JSON.stringify(HID)); } catch (e) {}
+      updateHint();
+    }
+    function updateHint() {
+      var n = Object.keys(HID).filter(function (k) { return HID[k]; }).length;
+      var box = $("hiddenHint");
+      if (!box) return;
+      box.style.display = n > 0 ? "block" : "none";
+      var el = $("hidN");
+      if (el) el.textContent = n;
+    }
+    Array.prototype.forEach.call(grid.querySelectorAll(".panel"), function (p) {
+      var pc = p.querySelector(".pc");
+      var key = pc && pc.id;
+      if (!key) return;
+      var head = p.querySelector(".pt");
+      if (!head) return;
+      var b = document.createElement("button");
+      b.className = "xrm";
+      b.title = "移除该面板（可用左侧「恢复显示」或「重置面板布局」还原）";
+      b.textContent = "×";
+      b.addEventListener("mousedown", function (e) { e.stopPropagation(); });
+      b.addEventListener("click", function (e) {
+        e.stopPropagation();
+        p.classList.add("removed");
+        HID[key] = 1;
+        save();
+      });
+      head.appendChild(b);
+      if (HID[key]) p.classList.add("removed");
+    });
+    var rb = $("restorePanels");
+    if (rb) {
+      rb.onclick = function () {
+        HID = {};
+        try { localStorage.removeItem("hcn_panel_hidden"); } catch (e) {}
+        Array.prototype.forEach.call(grid.querySelectorAll(".panel.removed"), function (p) {
+          p.classList.remove("removed");
+        });
+        updateHint();
+      };
+    }
+    updateHint();
+  })();
   // 夜间模式切换（状态在 earth.js，这里只做按钮与文案）
   var nightBtn = $("btnNight");
   function syncNightLabel() {
@@ -763,6 +822,7 @@
     resetBtn.onclick = function () {
       try { localStorage.removeItem("hcn_panel_order"); } catch (e) {}
       try { localStorage.removeItem("hcn_panel_size"); } catch (e) {}
+      try { localStorage.removeItem("hcn_panel_hidden"); } catch (e) {}
       location.reload();
     };
   }
