@@ -617,18 +617,21 @@
   // ===== 面板拖动换位（拖标题栏，位置记忆在 localStorage）=====
   function panelKey(p) { var b = p.querySelector(".pc"); return b ? b.id : ""; }
   function saveOrder() {
-    var grid = $("grid");
-    var order = [].map.call(grid.children, panelKey);
+    var c = cols();
+    var order = { L: [].map.call(c.L.children, panelKey), R: [].map.call(c.R.children, panelKey) };
     try { localStorage.setItem("hcn_panel_order", JSON.stringify(order)); } catch (e) {}
   }
   function restoreOrder() {
-    var grid = $("grid");
+    var c = cols();
     try {
-      var order = JSON.parse(localStorage.getItem("hcn_panel_order") || "[]");
-      if (!order.length) return;
-      var map = {};
-      [].forEach.call(grid.children, function (p) { var k = panelKey(p); if (k) map[k] = p; });
-      order.forEach(function (k) { if (map[k]) grid.appendChild(map[k]); });
+      var raw = JSON.parse(localStorage.getItem("hcn_panel_order") || "null");
+      if (!raw || Array.isArray(raw)) return;      // 旧格式（全局顺序）不再套用
+      [["L", c.L], ["R", c.R]].forEach(function (pair) {
+        var keys = raw[pair[0]] || [];
+        var col = pair[1], map = {};
+        [].forEach.call(col.children, function (p) { var k = panelKey(p); if (k) map[k] = p; });
+        keys.forEach(function (k) { if (map[k]) col.appendChild(map[k]); });
+      });
     } catch (e) {}
   }
   function initDrag() {
@@ -636,7 +639,9 @@
     if (!grid || grid.__drag) return;
     grid.__drag = true;
     var dragEl = null;
-    [].forEach.call(grid.children, function (p) {
+    var _c = cols();
+    var allPanels = [].slice.call(_c.L.children).concat([].slice.call(_c.R.children));
+    allPanels.forEach(function (p) {
       p.draggable = true;
       // mousedown 时记录是否按在标题栏（dragstart 的 event.target 恒为 panel 本身，
       // 不能靠 e.target.closest(".pt") 判断，否则拖动永远被 preventDefault 取消）
@@ -666,11 +671,13 @@
         e.preventDefault();
         p.classList.remove("target");
         if (!dragEl || dragEl === p) return;
-        var kids = [].slice.call(grid.children);
+        var parent = p.parentNode;                 // 只在同一列内换位，不跨列
+        if (!parent || dragEl.parentNode !== parent) return;
+        var kids = [].slice.call(parent.children);
         var i = kids.indexOf(dragEl), j = kids.indexOf(p);
         if (i < 0 || j < 0) return;
-        if (i < j) grid.insertBefore(dragEl, p.nextSibling);
-        else grid.insertBefore(dragEl, p);
+        if (i < j) parent.insertBefore(dragEl, p.nextSibling);
+        else parent.insertBefore(dragEl, p);
         dragEl = null;
         saveOrder();
       });
@@ -678,127 +685,126 @@
     restoreOrder();
   }
   initDrag();
-  // ===== 面板自由调节尺寸（右下角手柄；按网格实际格子换算跨度，存 hcn_panel_size）=====
-  function saveSize() {
-    var map = {};
-    [].forEach.call($("grid").children, function (p) {
-      var k = panelKey(p);
-      if (k && p.__col) map[k] = [p.__col, p.__row || 1];
+  // ===== 两列独立布局：列内按权重分配高度（拉大只挤同列下方，挤到 0 自动移除）=====
+  var LAYOUT_V = "hcn_layout_v3";
+  function cols() {
+    var g = $("grid");
+    if (!g) return null;
+    if (!g.querySelector(".colL")) {
+      var panels = Array.prototype.slice.call(g.children);
+      var L = document.createElement("div"), R = document.createElement("div");
+      L.className = "colL"; R.className = "colR";
+      g.innerHTML = ""; g.appendChild(L); g.appendChild(R);
+      var savedCols = {};
+      try { savedCols = JSON.parse(localStorage.getItem("hcn_colmap") || "{}") || {}; } catch (e) {}
+      panels.forEach(function (p, i) {
+        var k = panelKey(p);
+        var side = savedCols[k] || (i % 2 === 0 ? "L" : "R");
+        (side === "R" ? R : L).appendChild(p);
+      });
+    }
+    return { g: g, L: g.querySelector(".colL"), R: g.querySelector(".colR") };
+  }
+  function colMapSave() {
+    var c = cols(); var out = {};
+    [c.L, c.R].forEach(function (col, idx) {
+      Array.prototype.slice.call(col.children).forEach(function (p) {
+        var k = panelKey(p); if (k) out[k] = idx === 0 ? "L" : "R";
+      });
     });
-    try { localStorage.setItem("hcn_panel_size", JSON.stringify(map)); } catch (e) {}
+    try { localStorage.setItem("hcn_colmap", JSON.stringify(out)); } catch (e) {}
+  }
+  function saveSize() {
+    var c = cols(); var out = {};
+    [c.L, c.R].forEach(function (col) {
+      Array.prototype.slice.call(col.children).forEach(function (p) {
+        var k = panelKey(p); if (!k) return;
+        out[k] = { w: +(p.__w || 1).toFixed(2) };
+      });
+    });
+    try {
+      localStorage.setItem("hcn_panel_size", JSON.stringify(out));
+      localStorage.setItem(LAYOUT_V, "1");
+    } catch (e) {}
+    colMapSave();
   }
   function restoreSize() {
-    var grid = $("grid");
-    try {
-      var map = JSON.parse(localStorage.getItem("hcn_panel_size") || "{}");
-      // 旧版本只有 2 列网格：1→2、2→4 迁移一次（新版 4 列，默认每块占 2 列）
-      if (!localStorage.getItem("hcn_size_v2")) {
-        var migrated = {};
-        Object.keys(map).forEach(function (k) {
-          var v = map[k] || [2, 1];
-          migrated[k] = [Math.max(2, Math.min(4, (+v[0] || 1) * 2)), v[1] || 1];
-        });
-        map = migrated;
-        try { localStorage.setItem("hcn_panel_size", JSON.stringify(map)); } catch (e) {}
-        try { localStorage.setItem("hcn_size_v2", "1"); } catch (e) {}
-      }
-      [].forEach.call(grid.children, function (p) {
-        var k = panelKey(p);
-        var s = map[k];
-        if (s && s.length === 2) {
-          p.__col = Math.max(1, Math.min(4, +s[0] || 2));
-          p.__row = Math.max(1, Math.min(4, +s[1] || 1));
-        } else {
-          p.__col = 2;   // 新版 4 列网格：默认每块占 2 列（一行两块）
-          p.__row = 1;
-        }
-        p.style.gridColumn = "span " + p.__col;
-        p.style.gridRow = "span " + p.__row;
+    var c = cols();
+    var saved = {};
+    try { saved = JSON.parse(localStorage.getItem("hcn_panel_size") || "{}") || {}; } catch (e) { saved = {}; }
+    [c.L, c.R].forEach(function (col) {
+      Array.prototype.slice.call(col.children).forEach(function (p) {
+        var k = panelKey(p); if (!k) return;
+        var v = saved[k], w = 1;
+        if (v && typeof v.w === "number") w = v.w;
+        else if (v && v.length === 2) w = Math.max(0.5, Math.min(6, +v[1] || 1));
+        p.__w = w;
+        p.style.flexGrow = w;
+        p.style.flexBasis = "0";
       });
-    } catch (e) {}
+      var sum = Array.prototype.slice.call(col.children).reduce(function (x, y) {
+        return x + (y.__w || 1);
+      }, 0);
+      col.__total = sum || 1;
+    });
   }
   function initResize() {
-    var grid = $("grid");
-    if (!grid || grid.__rsz) return;
-    grid.__rsz = true;
-    [].forEach.call(grid.children, function (p) {
-      var rh = document.createElement("span");
-      rh.className = "rh";
-      rh.title = "拖动调整大小";
-      p.appendChild(rh);
-      rh.addEventListener("mousedown", function (e) {
-        e.preventDefault();
-        e.stopPropagation();   // 避免冒泡到面板 mousedown 记录 __canDrag，从而误触发换位拖动
-        p.__canDrag = false;   // 保险：手柄开始的拖动绝不是换位
-        var rect = p.getBoundingClientRect();
-        var cs = getComputedStyle(grid);
-        var gapX = parseFloat(cs.columnGap) || 10;
-        var gapY = parseFloat(cs.rowGap) || 10;
-        var colSpan = p.__col || 1, rowSpan = p.__row || 1;
-        // 当前网格行数：决定"最多能拉到第几行"（默认至少 4 行）
-        var maxRows = 1;
-        try {
-          var tpl = getComputedStyle(grid).gridTemplateRows || "";
-          maxRows = Math.max(tpl.trim() ? tpl.trim().split(/\s+/).length : 1, 4);
-        } catch (e2) { maxRows = 4; }
-        p.__R0 = maxRows;   // 本列可用行数（拖拽开始时）
-        // 用网格实际格子尺寸换算：面板当前宽高 ÷ 当前跨度（扣除 gap）得到单格尺寸
-        var colW = (rect.width - gapX * (colSpan - 1)) / colSpan;
-        var rowH = (rect.height - gapY * (rowSpan - 1)) / rowSpan;
-        var sx = e.clientX, sy = e.clientY;
-        p.classList.add("resizing");
-        function onMove(ev) {
-          var nCol = Math.max(1, Math.min(4, Math.round(colSpan + (ev.clientX - sx) / colW)));
-          var nRow = Math.max(1, Math.min(maxRows, Math.round(rowSpan + (ev.clientY - sy) / rowH)));
-          if (nCol !== p.__col || nRow !== p.__row) {
-            p.__col = nCol; p.__row = nRow;
-            p.style.gridColumn = "span " + nCol;
-            p.style.gridRow = "span " + nRow;
+    var c = cols();
+    if (!c || c.g.__rsz) return;
+    c.g.__rsz = true;
+    [c.L, c.R].forEach(function (col) {
+      Array.prototype.slice.call(col.children).forEach(function (p) {
+        if (p.querySelector(".rh")) return;
+        var rh = document.createElement("span");
+        rh.className = "rh";
+        rh.title = "上下拖动调整高度：只挤压同列下方的面板，挤到没有高度会自动移除";
+        p.appendChild(rh);
+        rh.addEventListener("mousedown", function (e) {
+          e.preventDefault(); e.stopPropagation();
+          p.__canDrag = false;
+          var items = Array.prototype.slice.call(col.children);
+          var pos = items.indexOf(p);
+          var followers = items.slice(pos + 1);
+          var colH = col.getBoundingClientRect().height - 10 * Math.max(0, items.length - 1);
+          var total = items.reduce(function (x, y) { return x + (y.__w || 1); }, 0) || 1;
+          var startW = p.__w || 1;
+          var fStart = followers.map(function (x) { return x.__w || 1; });
+          var startY = e.clientY;
+          var MINW = 0.3;
+          var cap = startW + fStart.reduce(function (x, y) { return x + Math.max(0, y - MINW); }, 0);
+          p.classList.add("resizing");
+          function onMove(ev) {
+            var dPx = ev.clientY - startY;
+            var dW = (dPx / (colH || 1)) * total;
+            var w = Math.max(MINW, Math.min(cap, startW + dW));
+            p.__w = w;
+            var need = w - startW;
+            followers.forEach(function (x, i) {
+              var avail = Math.max(0, fStart[i] - MINW);
+              var take = Math.max(0, Math.min(avail, need));
+              x.__w = fStart[i] - take;
+              need -= take;
+            });
+            items.forEach(function (x) { x.style.flexGrow = x.__w || 1; });
           }
-        }
-        function onUp() {
-          document.removeEventListener("mousemove", onMove);
-          document.removeEventListener("mouseup", onUp);
-          p.classList.remove("resizing");
-          rebalanceColumn(p);
-          saveSize();
-        }
-
-        // 同列行预算：目标面板变大后，后面的面板依次让行；让到 0 行 → 自动移除
-        function rebalanceColumn(target) {
-          var visible = Array.prototype.slice.call(grid.querySelectorAll(".panel"))
-            .filter(function (x) { return !x.classList.contains("removed"); });
-          var idx = visible.indexOf(target);
-          if (idx < 0) return;
-          if ((target.__col || 1) >= 4) return;      // 整行宽不参与列预算
-          var col = idx % 2;
-          var sameCol = visible.filter(function (x, i) { return i % 2 === col; });
-          var pos = sameCol.indexOf(target);
-          var followers = sameCol.slice(pos + 1);
-          var capacity = target.__R0 || 4;
-          var total = (target.__row || 1) + followers.reduce(function (a, x) {
-            return a + (x.__row || 1);
-          }, 0);
-          while (total > capacity && followers.length) {
-            var last = followers[followers.length - 1];
-            if ((last.__row || 1) > 1) {
-              last.__row = (last.__row || 1) - 1;
-              last.style.gridRow = "span " + last.__row;
-              total -= 1;
-            } else {
-              if (window.__panelHide) window.__panelHide(last);   // 挤没了 → 自动移除
-              followers.pop();
-              total -= 1;
-            }
+          function onUp() {
+            document.removeEventListener("mousemove", onMove);
+            document.removeEventListener("mouseup", onUp);
+            p.classList.remove("resizing");
+            followers.forEach(function (x) {
+              if ((x.__w || 1) <= MINW + 0.01 && window.__panelHide) window.__panelHide(x);
+            });
+            saveSize();
           }
-        }
-        document.addEventListener("mousemove", onMove);
-        document.addEventListener("mouseup", onUp);
+          document.addEventListener("mousemove", onMove);
+          document.addEventListener("mouseup", onUp);
+        });
       });
     });
-    restoreSize();
   }
+  restoreSize();
   initResize();
+
 
   // ===== 面板移除 / 恢复（× 按钮；重置或「恢复显示」可还原）=====
   (function initPanelRemove() {
@@ -841,8 +847,14 @@
             var pc = p.querySelector(".pc");
             if (pc && pc.id === k) target = p;
           });
-          if (target) target.classList.remove("removed");
+          if (target) {
+            target.classList.remove("removed");
+            target.__w = 1;                    // 恢复默认高度权重
+            target.style.flexGrow = 1;
+            target.style.flexBasis = "0";
+          }
           save();
+          if (typeof saveSize === "function") saveSize();
         };
       });
     }
@@ -892,6 +904,8 @@
       try { localStorage.removeItem("hcn_panel_order"); } catch (e) {}
       try { localStorage.removeItem("hcn_panel_size"); } catch (e) {}
       try { localStorage.removeItem("hcn_panel_hidden"); } catch (e) {}
+      try { localStorage.removeItem("hcn_colmap"); } catch (e) {}
+      try { localStorage.removeItem("hcn_layout_v3"); } catch (e) {}
       location.reload();
     };
   }
