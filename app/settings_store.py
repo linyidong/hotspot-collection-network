@@ -15,7 +15,7 @@ DEFAULTS = {
     "deep_model": "deepseek-v4-pro",
     "deep_limit": 10,
     "deep_per_category": 3,
-    "run_interval_minutes": 180,
+    "run_interval_minutes": 0,      # 0 = 每日 08/11/14/17/20/23（默认）；>0 = 自定义间隔
     "monthly_budget_cny": 200.0,
     "budget_stop_ratio": 0.10,      # 剩余 <10% 停深加工
     "budget_hard_ratio": 0.02,      # 剩余 <2% 停所有模型调用
@@ -31,7 +31,7 @@ _RULES = {
     "deep_model": (str, None),
     "deep_limit": (int, (0, 100)),
     "deep_per_category": (int, (0, 20)),
-    "run_interval_minutes": (int, (1, 1440)),
+    "run_interval_minutes": (int, (0, 1440)),
     "monthly_budget_cny": (float, (1, 100000)),
     "budget_stop_ratio": (float, (0, 1)),
     "budget_hard_ratio": (float, (0, 1)),
