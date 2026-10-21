@@ -326,7 +326,9 @@ def run_once(deep_limit: int = None, trigger: str = "手动") -> dict:
         conn.commit()
 
         # 2) 采集（含 sources 状态回写）
+        _t_collect = time.time()
         results = collect_once(conn=conn)
+        stats["collect_s"] = round(time.time() - _t_collect, 1)
 
         # 3) 落库（全部条目入库，重复标记留到去重）
         src_id_by_name = {r["name"]: r["id"] for r in conn.execute(
@@ -459,8 +461,17 @@ def run_once(deep_limit: int = None, trigger: str = "手动") -> dict:
             (batch_id,)).fetchone()
         stats["cost"] = round(cost_row["c"] or 0.0, 6)
         stats["duration_s"] = round(time.time() - t0, 1)
-        status = "stopped_budget" if stats["budget_stop"] == "hard" \
-            else ("degraded" if stats["sources_failed"] > 0 else "done")
+        # 状态优先级：全源不可用 > 预算硬停 > 部分源失败 > 正常
+        if stats.get("sources_ok", 0) == 0 and stats.get("fetched", 0) == 0:
+            status = "no_sources"
+            stats["no_sources"] = True
+            stats["note"] = "本轮没有任何可用数据源（全部停用或全部失败）"
+        elif stats["budget_stop"] == "hard":
+            status = "stopped_budget"
+        elif stats["sources_failed"] > 0:
+            status = "degraded"
+        else:
+            status = "done"
         conn.execute(
             "UPDATE batches SET finished_at=?, status=?, stats_json=? WHERE id=?",
             (_now(), status, json.dumps(stats, ensure_ascii=False), batch_id))

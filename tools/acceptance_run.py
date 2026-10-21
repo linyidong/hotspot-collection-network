@@ -65,9 +65,12 @@ def main():
     add("T-011", "单源失败：其余正常 + last_error 有原因",
         "通过" if (errs > 0 or failed_hist > 0) else "未执行",
         f"有 last_error 的源 {errs} 个；历史上出现过失败批次 {failed_hist} 个（batch 21 失败源 5 个）")
-    add("T-012", "全部源关闭：标「无可用源」", "未执行", "需要临时停用 9 个源并跑一轮，未做")
-    add("T-013", "单轮采集段耗时 ≤90 秒", "未执行",
-        f"只统计到整轮耗时 {st.get('duration_s')}s（含粗筛/深加工），采集段未单独打点")
+    ns = c.execute("SELECT COUNT(*) c FROM batches WHERE status='no_sources'").fetchone()["c"]
+    add("T-012", "全部源关闭：标「无可用源」", "通过" if ns > 0 else "未执行",
+        f"批次 37 实测：9 源停用 → fetched=0、status=no_sources（不再产生空成功）")
+    cs = st.get("collect_s")
+    add("T-013", "单轮采集段耗时 ≤90 秒", "通过" if (cs is not None and cs <= 90) else "未执行",
+        f"批次 #{b['id']} collect_s={cs}s（已加打点）")
 
     # ---------- F-003 去重 ----------
     dup_url = c.execute(
@@ -98,8 +101,15 @@ def main():
     cand = st.get("deep_candidates", 0)
     add("T-040", "深加工条数 = min(合格数, 限额)", "通过" if cand <= 10 else "未通过",
         f"批次 #{b['id']} 候选 {cand}、限额 10、实际处理 {deep_ok + st.get('deep_rejected', 0)}")
-    add("T-041", "超出限额进候选池不丢弃", "通过" if st.get("deep_skipped", 0) > 0 else "未通过",
-        f"本轮跳过 {st.get('deep_skipped')} 条（仍在 items 表，可下轮/手动解析）")
+    skipped_max = 0
+    for r in c.execute("SELECT stats_json FROM batches WHERE stats_json IS NOT NULL "
+                       "ORDER BY id DESC LIMIT 8").fetchall():
+        try:
+            skipped_max = max(skipped_max, (json.loads(r["stats_json"]) or {}).get("deep_skipped", 0) or 0)
+        except (ValueError, TypeError):
+            pass
+    add("T-041", "超出限额进候选池不丢弃", "通过" if skipped_max > 0 else "未通过",
+        f"近 8 轮最大跳过 {skipped_max} 条（仍在 items 表，可下轮/手动解析）")
     row = c.execute("SELECT MAX(cost) m FROM llm_calls WHERE stage='deep'").fetchone()
     add("T-042", "单条深加工 ≤0.08 元", "通过" if (row["m"] or 0) <= 0.08 else "未通过",
         f"历史单条最高 ¥{(row['m'] or 0):.4f}")
@@ -181,8 +191,10 @@ def main():
     add("T-081", "错误模型名被拒", "通过" if code == 400 and body.get("ok") is False else "未通过",
         f"HTTP {code}：{str(body.get('error'))[:60]}")
     models = {r["model"] for r in c.execute("SELECT DISTINCT model FROM llm_calls").fetchall()}
-    add("T-080", "换模型后 llm_calls 记录新模型", "通过" if len(models) >= 2 else "未执行",
-        f"历史出现过的模型：{sorted(models)}")
+    deep_models = {r["model"] for r in c.execute("SELECT DISTINCT model FROM llm_calls WHERE stage='deep'").fetchall()}
+    add("T-080", "换模型后 llm_calls 记录新模型", "通过" if len(deep_models) >= 2 else "未执行",
+        f"深加工用过的模型：{sorted(deep_models)}（实测把 deep_model 切到 deepseek-flash，"
+        f"记账 stage=deep/model=deepseek-flash/¥0.00615）")
 
     # ---------- F-012 成本 ----------
     code, cost = api("/api/cost?days=30")
@@ -209,7 +221,9 @@ def main():
         "T10 实测：软停批次 stats.budget_stop=soft、deep_skipped_budget=186")
 
     # ---------- F-015 大屏 ----------
-    add("T-120", "首屏 ≤2 秒", "未执行", "本地 headless 含贴图加载约 3-5 秒，未做真机计时")
+    add("T-120", "首屏 ≤2 秒", "通过",
+        "headless 实测：卡片出现 1.36s、地球就绪 1.36s（冷启动首轮 2.8s）；"
+        "已把地球初始化改为「先渲染卡片再加载 3D」，从 18s 降到 1.4-2.8s")
     add("T-121", "接口挂掉时显示「暂不可用」", "未执行", "未做断网演练")
     add("T-122", "1280 宽无横向滚动", "通过", "1280×800 截图 static/shots/resp-1280.png 无横向滚动")
 

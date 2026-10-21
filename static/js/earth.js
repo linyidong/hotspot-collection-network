@@ -3,7 +3,7 @@
    输入：window.EARTH.setDots([{lat,lon,n,stage}])，国家/潜力/id 从 window.__leads 匹配补齐。
    输出：window.EARTH.ok()、window.__fps5/__spots/__lines/__dots/__sun/__fallback 等验收用调试量。
    回退：WebGL 或 Shader 编译失败 → MeshBasicMaterial 贴图球 + 控制台警告，绝不留黑屏。 */
-(function () {
+var __earthBoot = function () {
   var $ = function (i) { return document.getElementById(i); };
   window.__err = window.__err || [];
   var el = $("g3d"), dgl = $("dgl");
@@ -894,4 +894,5 @@
     ok: function () { return webgl; },
     sun: function () { return sunDir.toArray(); }
   };
-})();
+};
+

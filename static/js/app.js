@@ -105,6 +105,18 @@
     // 先暴露给地球模块，再渲染（否则 setDots 时拿不到 leads，光点缺 id/潜力）
     window.__leads = LEAD; window.__batch = BATCH_INFO; window.__sources = SOURCES; window.__excl = EXCL;
     render();
+    // 地球延迟初始化：先把卡片渲染出来，再加载 3D（否则贴图/着色器会阻塞首屏）
+    if (window.__earthBoot && !window.__earthBooted) {
+      window.__earthBooted = true;
+      var boot = function () {
+        try { if (window.__earthBoot) window.__earthBoot(); } catch (e) { }
+        if (window.EARTH && window.EARTH.setDots) {
+          try { window.EARTH.setDots(buildDots()); } catch (e) { }
+        }
+      };
+      if (window.requestIdleCallback) window.requestIdleCallback(boot, { timeout: 1200 });
+      else setTimeout(boot, 200);
+    }
   }
 
   function buildIndChips() {
@@ -348,7 +360,10 @@
       ov.classList.remove("show");
     }
     if (SOURCES && SOURCES.length && SOURCES.every(function (s) { return s.status !== "ok"; })) {
-      $("sfail").classList.add("show");
+      $("sfail").textContent = (BATCH_INFO && BATCH_INFO.status === "no_sources")
+      ? "本轮没有任何可用数据源：请在左侧「采集来源」启用数据源后重试"
+      : "全部数据源采集失败：请检查网络或源配置后重试";
+    $("sfail").classList.add("show");
     } else {
       $("sfail").classList.remove("show");
     }
