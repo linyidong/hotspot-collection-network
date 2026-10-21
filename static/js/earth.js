@@ -467,14 +467,14 @@
         h.g.scale.setScalar(br);
         // 夜间：光晕/炫光/亮核全部收紧变淡，避免夜里一团刺眼白光
         h.spr.scale.setScalar(h.base * (h.hover ? 1.3 : 1) * (1 - nightMode * 0.74));
-        h.spr.material.opacity = 0.85 * (1 - nightMode * 0.72);
+        h.spr.material.opacity = 1.0 * (1 - nightMode * 0.72);
         if (h.flare) {
           h.flare.scale.setScalar(h.base * 4.0 * (1 - nightMode * 0.68));
           h.flare.material.opacity = 0.42 * (1 - nightMode * 0.6);
         }
         if (h.core) {
           h.core.scale.setScalar(Math.max(0.22, 1 - nightMode * 0.78));
-          h.core.material.opacity = 0.95 * (1 - nightMode);   // 夜间完全关闭亮核
+          h.core.material.opacity = 0.62 * (1 - nightMode);   // 白天也压暗亮核，让阶段色更明显
         }
         var k = (now * 0.0008 + h.ph) % 1, s = 0.3 + k * 0.95;
         h.ring.scale.set(s / br, s / br, 1);

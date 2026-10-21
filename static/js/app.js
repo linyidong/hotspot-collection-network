@@ -92,9 +92,12 @@
     for (var j = 0; j < BATCHES.length; j++) if (BATCHES[j].id === BATCH_ID) BATCH_INFO = BATCHES[j];
     if (BATCH_ID) {
       var it = await api("/api/items?batch=" + BATCH_ID + "&limit=200").catch(function () { return null; });
-      EXCL = ((it && it.items) || []).filter(function (x) {
-        return x.is_duplicate === 1 || x.coarse_status === "rejected" ||
-               (x.coarse_status === "ok" && x.is_economic === false) || x.coarse_status === "skipped";
+      var all = (it && it.items) || [];
+      // 重复条目单独计数，不进「已排除」列表（否则面板像垃圾堆）
+      window.__dupCount = all.filter(function (x) { return x.is_duplicate === 1; }).length;
+      EXCL = all.filter(function (x) {
+        return x.is_duplicate !== 1 && (x.coarse_status === "rejected" ||
+               (x.coarse_status === "ok" && x.is_economic === false) || x.coarse_status === "skipped");
       });
     } else { EXCL = []; }
     buildIndChips();
@@ -259,6 +262,12 @@
     put("pS3", s3, cardHTML, "暂无 S3 交易结构线索");
     put("pOld", oldA, cardHTML, "暂无更早批次线索");
     put("pEx", EXCL, exHTML, "暂无已排除条目");
+    // 内容溢出的面板加底部渐隐提示（否则隐藏滚动条后看不出还有内容）
+    Array.prototype.forEach.call(document.querySelectorAll("#grid .panel"), function (pn) {
+      var box = pn.querySelector(".pc");
+      if (!box) return;
+      pn.classList.toggle("has-more", box.scrollHeight > box.clientHeight + 4);
+    });
     // 点击卡片进详情页（委托到面板容器，避免每次重渲染重复绑定）
     ["pNew", "pA", "pS1", "pS3", "pOld"].forEach(function (pid) {
       var box = $(pid);
@@ -283,7 +292,7 @@
     $("cS1").textContent = s1.length;
     $("cS3").textContent = s3.length;
     $("cOld").textContent = oldA.length;
-    $("cEx").textContent = EXCL.length;
+    $("cEx").textContent = EXCL.length + (window.__dupCount ? "（去重 " + window.__dupCount + "）" : "");
     // __cards：渲染出的去重标题数（线索卡 + 排除卡）
     var titles = {};
     vis.forEach(function (l) { titles["l" + l.id] = 1; });

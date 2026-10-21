@@ -14,6 +14,7 @@ DEFAULTS = {
     "coarse_model": "deepseek-flash",
     "deep_model": "deepseek-v4-pro",
     "deep_limit": 10,
+    "deep_per_category": 3,
     "run_interval_minutes": 180,
     "monthly_budget_cny": 200.0,
     "budget_stop_ratio": 0.10,      # 剩余 <10% 停深加工
@@ -26,6 +27,7 @@ _RULES = {
     "coarse_model": (str, None),
     "deep_model": (str, None),
     "deep_limit": (int, (0, 100)),
+    "deep_per_category": (int, (0, 20)),
     "run_interval_minutes": (int, (1, 1440)),
     "monthly_budget_cny": (float, (1, 100000)),
     "budget_stop_ratio": (float, (0, 1)),

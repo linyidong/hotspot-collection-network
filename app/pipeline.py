@@ -15,7 +15,7 @@ from datetime import datetime
 from difflib import SequenceMatcher
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-from . import budget, db, settings_store
+from . import budget, db, dedup_topic, settings_store
 from .config import ROOT, settings
 from .llm import chat
 from .sources.collect import collect_once
@@ -358,23 +358,51 @@ def run_once(deep_limit: int = None, trigger: str = "手动") -> dict:
 
         # 5.5) 深加工（只处理粗筛 is_economic=true 的条目，限额，超出进候选池；
         #      预算软停时跳过，每次调用前复检一次防止轮内超支）
+        # 5.4) 事件级去重（借鉴 Horizon 的 topic_dedup）：同一件事的重复报道先合并，
+        #      避免重复消耗深加工预算、也避免大屏出现多条同事件卡片
+        stats["topic_merged"] = 0
+        if stats["coarse_ok"] > 0 and budget_mode == "ok":
+            try:
+                stats["topic_merged"] = dedup_topic.merge_same_events(batch_id, cfg["coarse_model"])
+            except Exception as exc:   # 去重失败不影响整轮，但要在统计里看得见
+                stats["topic_merged_error"] = f"{type(exc).__name__}: {exc}"
+
         limit = cfg["deep_limit"] if deep_limit is None else max(0, int(deep_limit))
         if limit > 0 and budget_mode != "hard":
             if budget_mode == "soft":
                 # 预算软停：粗筛已跑完，本应深加工的候选全部跳过
                 stats["deep_skipped_budget"] = stats["coarse_ok"]
             else:
-                candidates = conn.execute(
+                rows = conn.execute(
                     "SELECT i.id, i.title, i.summary, i.published_at, i.url, "
                     "s.name AS source_name, a.payload_json "
                     "FROM items i JOIN sources s ON s.id=i.source_id "
                     "JOIN analyses a ON a.item_id=i.id AND a.stage='coarse' "
-                    "WHERE i.batch_id=? AND i.is_duplicate=0 AND a.status='ok' "
-                    "ORDER BY i.id LIMIT ?", (batch_id, limit)).fetchall()
-                total_ok = conn.execute(
-                    "SELECT COUNT(*) c FROM analyses a JOIN items i ON i.id=a.item_id "
-                    "WHERE i.batch_id=? AND a.stage='coarse' AND a.status='ok'",
-                    (batch_id,)).fetchone()["c"]
+                    "WHERE i.batch_id=? AND i.is_duplicate=0 AND a.status='ok'",
+                    (batch_id,)).fetchall()
+                # 按潜力分降序 + 品类配额（借鉴 Horizon 的 balanced digest，避免一个品类刷屏）
+                pool = []
+                for r in rows:
+                    try:
+                        cp = json.loads(r["payload_json"] or "{}")
+                    except (ValueError, TypeError):
+                        cp = {}
+                    if cp.get("is_economic") is False:
+                        continue
+                    cat = ((cp.get("anchors") or {}).get("category") or "其他").strip() or "其他"
+                    pool.append((int(cp.get("potential") or 0), cat, r))
+                pool.sort(key=lambda x: -x[0])
+                per_cat = int(cfg.get("deep_per_category") or 0)
+                picked, used = [], {}
+                for _pot, cat, r in pool:
+                    if per_cat and used.get(cat, 0) >= per_cat:
+                        continue
+                    used[cat] = used.get(cat, 0) + 1
+                    picked.append(r)
+                    if len(picked) >= limit:
+                        break
+                candidates = picked
+                total_ok = len(pool)
                 stats["deep_candidates"] = len(candidates)
                 stats["deep_skipped"] = max(0, total_ok - len(candidates))
                 for idx, it in enumerate(candidates):
