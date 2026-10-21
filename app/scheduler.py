@@ -20,6 +20,25 @@ from .pipeline import run_once
 _LOCK = threading.Lock()
 
 # 运行状态（供 /api/run/status 读取）
+_SCHED = None            # 全局调度器实例（启动后赋值，供状态接口实时查询下一轮）
+
+
+def refresh_next_run() -> str | None:
+    """实时读取下一轮时间并写回 STATE（避免启动后不再更新）。"""
+    global _SCHED
+    try:
+        if _SCHED is not None:
+            jobs = [j for j in _SCHED.get_jobs()
+                    if j.id not in ("backup_daily", "cleanup_daily", "platform_snapshot_daily")]
+            if jobs:
+                job = jobs[0]
+                STATE["next_run_at"] = (job.next_run_time.strftime("%Y-%m-%d %H:%M:%S")
+                                        if job.next_run_time else None)
+    except Exception:
+        pass
+    return STATE.get("next_run_at")
+
+
 STATE = {
     "running": False,
     "current_batch_id": None,
@@ -182,6 +201,7 @@ def start(deep_limit=None):
 
     _cleanup_now()
     job = sched.get_jobs()[0]
+    globals()["_SCHED"] = sched
     STATE["next_run_at"] = job.next_run_time.strftime("%Y-%m-%d %H:%M:%S") if job.next_run_time else None
     print(f"[调度] 已启动：{note}；下一轮 {STATE['next_run_at']}", flush=True)
 

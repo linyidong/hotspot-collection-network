@@ -190,6 +190,7 @@ def create_app() -> FastAPI:
     def run_status():
         """调度与轮次状态：是否在跑、当前批次、上次完成、下次计划。"""
         from .. import scheduler as sched
+        sched.refresh_next_run()      # 每次查询实时计算，避免停在启动时的时间
         return dict(sched.STATE)
 
     @app.get("/api/leads")
