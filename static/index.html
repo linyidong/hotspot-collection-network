@@ -138,7 +138,7 @@ main{flex:1;min-height:0;display:flex;gap:10px;padding:10px}
 .lg i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:4px;vertical-align:-1px}
 .i1{background:#4d9de0}.i2{background:#8a63f5}.i3{background:#f5a623}.i4{background:#2ecc8f}
 /* 右侧面板网格 2×3 */
-#grid{width:clamp(560px,48vw,1060px);flex:none;display:grid;grid-template-columns:1fr 1fr;grid-auto-rows:1fr;gap:10px;min-height:0}
+#grid{width:clamp(560px,48vw,1060px);flex:none;display:grid;grid-template-columns:repeat(4,1fr);grid-auto-rows:1fr;gap:10px;min-height:0}
 .panel.removed{display:none}
 .panel{position:relative;min-width:0;background:rgba(255,255,255,.035);transition:border-color .15s,box-shadow .15s;border:1px solid rgba(120,180,255,.14);border-radius:8px;padding:7px;display:flex;flex-direction:column;min-height:0}
 .pt{flex:none;display:flex;align-items:center;justify-content:space-between;font-size:12px;color:#9fb4d8;margin-bottom:6px}
@@ -189,6 +189,15 @@ footer b{color:#9fb4d8}
 .pt .xrm:hover{border-color:#ff6b6b;color:#ff8b8b;background:rgba(255,90,90,.12)}
 #hiddenHint{font-size:11px;color:#8fa3c4;margin-top:8px;display:none}
 #hiddenHint button{background:transparent;border:0;color:#7fe6f5;cursor:pointer;font-size:11px;text-decoration:underline;padding:0}
+/* 右侧「已移除面板」列表 */
+#removedBox{position:fixed;right:14px;bottom:44px;width:190px;background:rgba(10,18,32,.95);
+  border:1px solid rgba(120,180,255,.28);border-radius:8px;padding:8px 10px;display:none;z-index:55;
+  box-shadow:0 6px 20px rgba(0,0,0,.45)}
+#removedBox.show{display:block}
+#removedBox .rb-t{font-size:11px;color:#8fa3c4;margin-bottom:6px}
+#removedBox .rb-i{display:block;width:100%;text-align:left;font-size:12px;color:#cfe3ff;background:rgba(120,180,255,.1);
+  border:1px solid rgba(120,180,255,.25);border-radius:4px;padding:3px 8px;margin-bottom:5px;cursor:pointer}
+#removedBox .rb-i:hover{background:rgba(53,208,232,.2);border-color:rgba(53,208,232,.55)}
 .pt:active{cursor:grabbing}
 .panel .pt::before{content:"⠿";color:#4a5878;font-size:11px;margin-right:4px}
 /* 面板自由调节尺寸（右下角手柄，悬停显示） */
@@ -275,6 +284,10 @@ footer b{color:#9fb4d8}
   <span id="fsrc">数据源 —/8</span><span id="fbatch">最新批次 #—</span>
   <span id="fdur">本轮 —</span><span>实时数据 · 60s 自动刷新</span>
 </footer>
+<div id="removedBox">
+  <div class="rb-t">已移除的面板（点击恢复）</div>
+  <div id="rbList"></div>
+</div>
 <div id="toast"></div>
 <!-- 备忘录/收藏 弹层 -->
 <div id="pop" class="pop">

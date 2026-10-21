@@ -37,8 +37,10 @@ class GoogleNewsSource(BaseSource):
         if getattr(feed, "bozo", 0) and not getattr(feed, "entries", None):
             raise ValueError("RSS 解析失败（内容不是有效 feed）")
 
+        from datetime import timedelta
+        cutoff = datetime.now() - timedelta(days=30)  # 优先最近 30 天；全都很旧时保底取前 15 条
         out = []
-        for ent in feed.entries[:40]:
+        for ent in feed.entries[:60]:
             title = (ent.get("title") or "").strip()
             link = (ent.get("link") or "").strip()
             if not title or not link:
@@ -55,8 +57,32 @@ class GoogleNewsSource(BaseSource):
                     published = datetime.fromtimestamp(mktime(ts)).strftime("%Y-%m-%d %H:%M:%S")
                 except (ValueError, OverflowError):
                     published = ""
+            if published:
+                try:
+                    if datetime.strptime(published, "%Y-%m-%d %H:%M:%S") < cutoff:
+                        continue
+                except ValueError:
+                    pass
             out.append(RawItem(
                 title=title, url=link, summary=summary,
                 published_at=published, source_id=self.spec.id,
             ))
+            if len(out) >= 40:
+                break
+        # 保底：若时间过滤后为空，退回未过滤的前 15 条（避免该源整轮空转）
+        if not out:
+            for ent in feed.entries[:15]:
+                title = (ent.get("title") or "").strip()
+                link = (ent.get("link") or "").strip()
+                if not title or not link:
+                    continue
+                published = ""
+                ts = ent.get("published_parsed") or ent.get("updated_parsed")
+                if ts:
+                    try:
+                        published = datetime.fromtimestamp(mktime(ts)).strftime("%Y-%m-%d %H:%M:%S")
+                    except (ValueError, OverflowError):
+                        published = ""
+                out.append(RawItem(title=title, url=link, summary="", published_at=published,
+                                   source_id=self.spec.id))
         return out

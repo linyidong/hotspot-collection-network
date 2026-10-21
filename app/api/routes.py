@@ -389,6 +389,40 @@ def create_app() -> FastAPI:
         return {"ok": True, "settings": data,
                 "note": "模型与限额下一轮生效；轮次间隔需重启服务后生效"}
 
+    # ---------------- T12：手动清理 ----------------
+    @app.post("/api/cleanup")
+    def cleanup_now(days: int = Body(default=0, embed=True)):
+        """立即清理过期数据。days>0 时临时覆盖保留天数（不写回配置）。"""
+        from .. import cleanup as cleanup_mod
+        try:
+            if days and int(days) > 0:
+                import sqlite3, datetime
+                from .. import db
+                conn = db.get_conn()
+                try:
+                    cutoff_items = (datetime.datetime.now() - datetime.timedelta(days=int(days))
+                                    ).strftime("%Y-%m-%d %H:%M:%S")
+                    old = [r["id"] for r in conn.execute(
+                        "SELECT i.id FROM items i LEFT JOIN batches b ON b.id=i.batch_id "
+                        "WHERE COALESCE(i.published_at, b.started_at) < ?", (cutoff_items,)).fetchall()]
+                    n = {"items": 0, "analyses": 0, "notes": 0, "favorites": 0, "llm_calls": 0}
+                    if old:
+                        marks = ",".join("?" * len(old))
+                        n["favorites"] = conn.execute(f"DELETE FROM favorites WHERE item_id IN ({marks})", old).rowcount
+                        n["notes"] = conn.execute(f"DELETE FROM notes WHERE item_id IN ({marks})", old).rowcount
+                        n["analyses"] = conn.execute(f"DELETE FROM analyses WHERE item_id IN ({marks})", old).rowcount
+                        n["items"] = conn.execute(f"DELETE FROM items WHERE id IN ({marks})", old).rowcount
+                    conn.commit()
+                    res = n
+                finally:
+                    conn.close()
+            else:
+                res = cleanup_mod.run()
+            return {"ok": True, "deleted": res, "days": int(days) or None}
+        except Exception as exc:
+            return JSONResponse(status_code=500,
+                                content={"ok": False, "error": f"清理失败：{type(exc).__name__}: {exc}"})
+
     # ---------------- T8：详情 / 备忘录 / 收藏 ----------------
     def _deep_of(conn, item_id: int):
         """取该条目的深加工结果（最新一条），返回 (card, reasons, status)。"""

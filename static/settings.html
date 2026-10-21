@@ -76,6 +76,20 @@ button.ghost{background:rgba(120,180,255,.15);color:#cfe3ff;border:1px solid rgb
   </section>
 
   <section>
+    <h2>数据清理</h2>
+    <div class="grid">
+      <label>立即清理</label>
+      <div>
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+          <button id="btnClean" class="ghost">清理过期数据</button>
+          <span style="font-size:12px;color:#8fa3c4">按上面「条目保留天数」执行；日志保留 30 天</span>
+        </div>
+        <div id="cleanMsg" style="font-size:12px;margin-top:6px"></div>
+      </div>
+    </div>
+  </section>
+
+  <section>
     <h2>数据源（开关 / 代理）</h2>
     <table>
       <thead><tr><th style="width:34px">启用</th><th>源</th><th style="width:120px">状态</th>
@@ -178,6 +192,26 @@ button.ghost{background:rgba(120,180,255,.15);color:#cfe3ff;border:1px solid rgb
       });
     }).catch(function (e) { msg("保存失败：" + e.message, false); });
   });
+
+  var cb = document.getElementById("btnClean");
+  if (cb) {
+    cb.onclick = function () {
+      var m = document.getElementById("cleanMsg");
+      m.textContent = "清理中…";
+      m.className = "";
+      fetch("/api/cleanup", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" })
+        .then(function (r) { return r.json(); })
+        .then(function (j) {
+          if (!j.ok) { m.textContent = "清理失败：" + (j.error || "未知"); m.className = "bad"; return; }
+          var d = j.deleted || {};
+          m.textContent = "已清理：条目 " + (d.items || 0) + " / 解析 " + (d.analyses || 0) +
+            " / 备注 " + (d.notes || 0) + " / 收藏 " + (d.favorites || 0) +
+            " / 调用日志 " + (d.llm_calls || 0);
+          m.className = "ok";
+        })
+        .catch(function (e) { m.textContent = "清理失败：" + e.message; m.className = "bad"; });
+    };
+  }
 
   load();
 })();

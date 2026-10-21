@@ -84,6 +84,57 @@ python run.py --platform-snapshot
 
 调度器每天 05:00 自动刷新一次；启动时若快照超过 20 小时也会补刷。
 
+## macOS 运行规则（完整）
+
+本项目是纯 Python + 静态前端，**macOS 可直接运行**，无需改代码。
+
+### 1. 一次性准备
+
+```bash
+# 安装 Python 3.11+（推荐 Homebrew）
+brew install python@3.12
+# 安装 Chrome（平台榜单抓取需要）
+brew install --cask google-chrome
+```
+
+把项目放到任意目录后，给脚本执行权限（只需一次）：
+
+```bash
+chmod +x 启动.command 停止.command
+```
+
+### 2. 启动 / 停止
+
+- **双击 `启动.command`**：自动建 `.venv`、用清华镜像装依赖、启动服务、打开浏览器
+- 首次启动后，编辑 `.env` 填入 `DEEPSEEK_API_KEY=sk-...`（可复制 `.env.example`）
+
+```bash
+cp .env.example .env
+# 然后编辑 .env
+```
+
+- **双击 `停止.command`**：按端口结束服务（9000）与 RSS 桥（8053）
+
+### 3. 与 Windows 的差异
+
+| 项 | Windows | macOS |
+|---|---|---|
+| 启动 | `启动.cmd`（GBK 编码） | `启动.command`（bash） |
+| Python | `D:\Software\...\python.exe` | `python3`（venv 内） |
+| Chrome 路径 | `C:\Program Files\...` | `/Applications/Google Chrome.app/Contents/MacOS/Google Chrome` |
+| 端口占用检查 | `netstat` | `lsof -nP -iTCP:9000` |
+| 数据位置 | `data/app.db` | 相同（项目内相对路径） |
+
+> 平台榜单抓取（T12 C 方案）已支持 macOS/Linux 的 Chrome 路径；
+> 若没装 Chrome，只影响 3 个 Amazon 榜单源，其余 15 个源照常工作。
+
+### 4. 常见问题（macOS）
+
+- **双击没反应**：在「系统设置 → 隐私与安全性」允许终端/脚本运行，或右键 → 打开
+- **`python3` 版本过低**：`brew install python@3.12` 后用 `python3.12 -m venv .venv`
+- **端口被占用**：改 `.env` 里的 `PORT=9001` 再启动
+- **pip 慢**：脚本已默认用清华镜像
+
 ## 四、如何换源（新增 / 停用 / 走代理）
 
 **日常操作（不用改代码）**

@@ -691,14 +691,25 @@
     var grid = $("grid");
     try {
       var map = JSON.parse(localStorage.getItem("hcn_panel_size") || "{}");
+      // 旧版本只有 2 列网格：1→2、2→4 迁移一次（新版 4 列，默认每块占 2 列）
+      if (!localStorage.getItem("hcn_size_v2")) {
+        var migrated = {};
+        Object.keys(map).forEach(function (k) {
+          var v = map[k] || [2, 1];
+          migrated[k] = [Math.max(2, Math.min(4, (+v[0] || 1) * 2)), v[1] || 1];
+        });
+        map = migrated;
+        try { localStorage.setItem("hcn_panel_size", JSON.stringify(map)); } catch (e) {}
+        try { localStorage.setItem("hcn_size_v2", "1"); } catch (e) {}
+      }
       [].forEach.call(grid.children, function (p) {
         var k = panelKey(p);
         var s = map[k];
         if (s && s.length === 2) {
-          p.__col = Math.max(1, Math.min(2, +s[0] || 1));
+          p.__col = Math.max(1, Math.min(4, +s[0] || 2));
           p.__row = Math.max(1, Math.min(3, +s[1] || 1));
         } else {
-          p.__col = 1;
+          p.__col = 2;   // 新版 4 列网格：默认每块占 2 列（一行两块）
           p.__row = 1;
         }
         p.style.gridColumn = "span " + p.__col;
@@ -730,7 +741,7 @@
         var sx = e.clientX, sy = e.clientY;
         p.classList.add("resizing");
         function onMove(ev) {
-          var nCol = Math.max(1, Math.min(2, Math.round(colSpan + (ev.clientX - sx) / colW)));
+          var nCol = Math.max(1, Math.min(4, Math.round(colSpan + (ev.clientX - sx) / colW)));
           var nRow = Math.max(1, Math.min(3, Math.round(rowSpan + (ev.clientY - sy) / rowH)));
           if (nCol !== p.__col || nRow !== p.__row) {
             p.__col = nCol; p.__row = nRow;
@@ -762,13 +773,39 @@
       try { localStorage.setItem("hcn_panel_hidden", JSON.stringify(HID)); } catch (e) {}
       updateHint();
     }
+    var TITLE = {};   // pc id → 面板标题
+    function titlesOf(p) {
+      var span = p.querySelector(".pt > span");
+      return span ? span.textContent.trim() : (p.querySelector(".pc") || {}).id || "面板";
+    }
     function updateHint() {
-      var n = Object.keys(HID).filter(function (k) { return HID[k]; }).length;
+      var keys = Object.keys(HID).filter(function (k) { return HID[k]; });
       var box = $("hiddenHint");
-      if (!box) return;
-      box.style.display = n > 0 ? "block" : "none";
-      var el = $("hidN");
-      if (el) el.textContent = n;
+      if (box) {
+        box.style.display = keys.length > 0 ? "block" : "none";
+        var el = $("hidN");
+        if (el) el.textContent = keys.length;
+      }
+      // 右侧：列出被移除面板的名字，点名字单独恢复
+      var rb = $("removedBox"), rl = $("rbList");
+      if (!rb || !rl) return;
+      rb.classList.toggle("show", keys.length > 0);
+      rl.innerHTML = keys.map(function (k) {
+        return '<button class="rb-i" data-k="' + k + '">' + (TITLE[k] || k) + "</button>";
+      }).join("");
+      Array.prototype.forEach.call(rl.querySelectorAll(".rb-i"), function (b) {
+        b.onclick = function () {
+          var k = b.getAttribute("data-k");
+          delete HID[k];
+          var target = null;
+          Array.prototype.forEach.call(grid.querySelectorAll(".panel"), function (p) {
+            var pc = p.querySelector(".pc");
+            if (pc && pc.id === k) target = p;
+          });
+          if (target) target.classList.remove("removed");
+          save();
+        };
+      });
     }
     Array.prototype.forEach.call(grid.querySelectorAll(".panel"), function (p) {
       var pc = p.querySelector(".pc");
@@ -776,6 +813,7 @@
       if (!key) return;
       var head = p.querySelector(".pt");
       if (!head) return;
+      TITLE[key] = titlesOf(p);
       var b = document.createElement("button");
       b.className = "xrm";
       b.title = "移除该面板（可用左侧「恢复显示」或「重置面板布局」还原）";
