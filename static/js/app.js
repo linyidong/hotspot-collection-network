@@ -741,6 +741,7 @@
           var tpl = getComputedStyle(grid).gridTemplateRows || "";
           maxRows = Math.max(tpl.trim() ? tpl.trim().split(/\s+/).length : 1, 4);
         } catch (e2) { maxRows = 4; }
+        p.__R0 = maxRows;   // 本列可用行数（拖拽开始时）
         // 用网格实际格子尺寸换算：面板当前宽高 ÷ 当前跨度（扣除 gap）得到单格尺寸
         var colW = (rect.width - gapX * (colSpan - 1)) / colSpan;
         var rowH = (rect.height - gapY * (rowSpan - 1)) / rowSpan;
@@ -759,7 +760,37 @@
           document.removeEventListener("mousemove", onMove);
           document.removeEventListener("mouseup", onUp);
           p.classList.remove("resizing");
+          rebalanceColumn(p);
           saveSize();
+        }
+
+        // 同列行预算：目标面板变大后，后面的面板依次让行；让到 0 行 → 自动移除
+        function rebalanceColumn(target) {
+          var visible = Array.prototype.slice.call(grid.querySelectorAll(".panel"))
+            .filter(function (x) { return !x.classList.contains("removed"); });
+          var idx = visible.indexOf(target);
+          if (idx < 0) return;
+          if ((target.__col || 1) >= 4) return;      // 整行宽不参与列预算
+          var col = idx % 2;
+          var sameCol = visible.filter(function (x, i) { return i % 2 === col; });
+          var pos = sameCol.indexOf(target);
+          var followers = sameCol.slice(pos + 1);
+          var capacity = target.__R0 || 4;
+          var total = (target.__row || 1) + followers.reduce(function (a, x) {
+            return a + (x.__row || 1);
+          }, 0);
+          while (total > capacity && followers.length) {
+            var last = followers[followers.length - 1];
+            if ((last.__row || 1) > 1) {
+              last.__row = (last.__row || 1) - 1;
+              last.style.gridRow = "span " + last.__row;
+              total -= 1;
+            } else {
+              if (window.__panelHide) window.__panelHide(last);   // 挤没了 → 自动移除
+              followers.pop();
+              total -= 1;
+            }
+          }
         }
         document.addEventListener("mousemove", onMove);
         document.addEventListener("mouseup", onUp);
@@ -784,6 +815,14 @@
       var span = p.querySelector(".pt > span");
       return span ? span.textContent.trim() : (p.querySelector(".pc") || {}).id || "面板";
     }
+    // 供拉伸逻辑调用：某块被挤到没有高度 → 自动移除
+    window.__panelHide = function (panel) {
+      var pc = panel && panel.querySelector(".pc");
+      if (!pc) return;
+      panel.classList.add("removed");
+      HID[pc.id] = 1;
+      save();
+    };
     function updateHint() {
       var keys = Object.keys(HID).filter(function (k) { return HID[k]; });
       // 只在右下角浮层列出被移除面板的名字，点名字单独恢复
