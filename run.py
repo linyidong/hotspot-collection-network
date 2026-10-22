@@ -8,6 +8,24 @@ import os
 import socket
 import sys
 
+# ===== 0. 无控制台（pythonw）运行时，把输出写进 data/logs/app.log =====
+def _setup_file_logging():
+    """pythonw 没有控制台，sys.stdout 为 None；写入日志文件，避免依赖 cmd 重定向（也就没有黑窗口）。"""
+    try:
+        if sys.stdout is not None and sys.stderr is not None and not os.environ.get("HCN_LOG_TO_FILE"):
+            return
+        from pathlib import Path
+        log_dir = Path(__file__).resolve().parent / "data" / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        f = open(log_dir / "app.log", "a", encoding="utf-8", buffering=1)
+        sys.stdout = f
+        sys.stderr = f
+    except Exception:
+        pass
+
+
+_setup_file_logging()
+
 # ===== 1. Python 版本检查 =====
 if sys.version_info < (3, 11):
     print("错误：需要 Python 3.11 或更高版本。")

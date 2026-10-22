@@ -219,9 +219,8 @@ def start(deep_limit=None):
 
     _heartbeat_now()      # 启动立即写一条，避免开机到首个 5 分钟空窗被算成离线
     _cleanup_now()
-    job = sched.get_jobs()[0]
     globals()["_SCHED"] = sched
-    STATE["next_run_at"] = job.next_run_time.strftime("%Y-%m-%d %H:%M:%S") if job.next_run_time else None
+    refresh_next_run()          # 只取真正的采集任务（排除心跳/备份/清理/榜单）
     print(f"[调度] 已启动：{note}；下一轮 {STATE['next_run_at']}", flush=True)
 
     # 启动补跑：距上次完成超过间隔（或从未跑过）→ 立即补 1 次
