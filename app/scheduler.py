@@ -29,7 +29,8 @@ def refresh_next_run() -> str | None:
     try:
         if _SCHED is not None:
             jobs = [j for j in _SCHED.get_jobs()
-                    if j.id not in ("backup_daily", "cleanup_daily", "platform_snapshot_daily")]
+                    if j.id not in ("backup_daily", "cleanup_daily",
+                                    "platform_snapshot_daily", "heartbeat")]
             if jobs:
                 job = jobs[0]
                 STATE["next_run_at"] = (job.next_run_time.strftime("%Y-%m-%d %H:%M:%S")
