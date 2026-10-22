@@ -107,7 +107,10 @@ header h1{font-size:16px;color:#eaf2ff;letter-spacing:1px;white-space:nowrap}
 main{flex:1;min-height:0;display:flex;gap:10px;padding:10px;position:relative}
 /* 左抽屉 */
 #drw{width:clamp(180px,13.5vw,240px);flex:none;background:rgba(255,255,255,.035);border:1px solid rgba(120,180,255,.14);border-radius:8px;display:flex;flex-direction:column;transition:width .2s;overflow:hidden}
-#drw.coll{width:36px;min-width:36px}
+#drw.coll{position:absolute;left:10px;top:10px;bottom:10px;width:36px;min-width:36px;z-index:30}
+#drw.coll .dhd{justify-content:center;padding:0;border-bottom:0}
+#drw.coll .dtt{display:none}
+#drw.coll #dtog{margin-left:0;width:24px;height:24px}
 .dhd{height:32px;flex:none;display:flex;align-items:center;gap:6px;padding:0 8px;border-bottom:1px solid rgba(120,180,255,.12)}
 .dtt{font-size:12px;color:#9fb4d8;white-space:nowrap}
 #dtog{margin-left:auto;width:22px;height:22px;border:0;border-radius:4px;background:rgba(120,180,255,.15);color:#cfe3ff;cursor:pointer;font-size:14px}

@@ -436,11 +436,22 @@
       p(d.getUTCDate()) + " " + p(d.getUTCHours()) + ":" + p(d.getUTCMinutes()) + ":" + p(d.getUTCSeconds());
   }
   clk(); setInterval(clk, 1000);
-  var drw = $("drw"), dtog = $("dtog");
-  dtog.onclick = function () {
-    drw.classList.toggle("coll");
-    dtog.textContent = drw.classList.contains("coll") ? "›" : "‹";
-  };
+  var drw = $("drw"), dtog = $("dtog"), cenEl = $("cen");
+  function syncDrwLayout() {
+    if (!cenEl) return;
+    // 折叠时抽屉变浮层（脱离布局），用左边距补回原宽度，地球局部尺寸不变
+    cenEl.style.marginLeft = drw.classList.contains("coll")
+      ? "calc(clamp(180px,13.5vw,240px) + 10px)" : "";
+    dtog.title = drw.classList.contains("coll") ? "展开左侧筛选面板" : "收起左侧筛选面板";
+  }
+  if (dtog) {
+    dtog.onclick = function () {
+      drw.classList.toggle("coll");
+      dtog.textContent = drw.classList.contains("coll") ? "›" : "‹";
+      syncDrwLayout();
+    };
+    syncDrwLayout();
+  }
   bindChips($("opTime"), "time");
   bindChips($("opStage"), "stage");
   bindChips($("opGrade"), "grade");
