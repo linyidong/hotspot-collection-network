@@ -1034,6 +1034,27 @@
     setTimeout(syncNightLabel, 300);
   }
 
+  // 出口网络徽标：只显示，点它去设置页切换采集模式
+  (function initNetBadge() {
+    var el = $("netBadge");
+    if (!el) return;
+    function load(force) {
+      fetch("/api/network" + (force ? "?refresh=1" : ""))
+        .then(function (r) { return r.json(); })
+        .then(function (j) {
+          if (!j.ok) { el.textContent = "出口 未知"; el.title = j.error || ""; return; }
+          var where = j.is_cn ? "境内" : (j.country || "境外");
+          el.textContent = "出口 " + where + " · " + (j.ip || "?");
+          el.title = "出口 IP " + (j.ip || "?") + "\n地区 " + (j.region || "-") +
+                     "\n检测于 " + (j.checked_at || "-") + "\n点击到设置页切换采集模式";
+        })
+        .catch(function () { el.textContent = "出口 未知"; });
+    }
+    el.onclick = function () { location.href = "/static/settings.html"; };
+    load(false);
+    setInterval(function () { load(true); }, 10 * 60 * 1000);   // 每 10 分钟刷新
+  })();
+
   var col3Btn = $("btnCol3Close");
   if (col3Btn) {
     col3Btn.onclick = function () {

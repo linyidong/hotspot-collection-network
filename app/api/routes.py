@@ -390,6 +390,73 @@ def create_app() -> FastAPI:
         return {"ok": True, "settings": data,
                 "note": "模型与限额下一轮生效；轮次间隔需重启服务后生效"}
 
+    # ---------------- 出口网络 & 采集模式切换 ----------------
+    DOMESTIC_DIRECT = {"wscn-global", "wscn-a-stock", "wscn-forex", "sina", "weibo-hot"}
+    FOREIGN_DIRECT = {"gnews-kuajing", "gnews-xuanpin", "gnews-guanshui",
+                      "gnews-platform", "gnews-warehouse"}
+
+    @app.get("/api/network")
+    def network_info(refresh: int = 0):
+        """当前出口 IP 与地区（缓存 10 分钟，refresh=1 强制刷新）。"""
+        from .. import network as net
+        return net.current(force=bool(refresh))
+
+    @app.post("/api/sources/region-mode")
+    def region_mode(payload: dict = Body(default={})):
+        """一键切换采集模式：cn=境内（国内源直连、国外源代理）/ intl=境外（相反）。"""
+        mode = (payload.get("mode") or "cn").lower()
+        proxy_url = (payload.get("proxy_url") or "").strip()
+        from .. import settings_store
+        if not proxy_url:
+            proxy_url = settings_store.get("proxy_url_default") or "http://127.0.0.1:7897"
+        from ..sources.registry import SOURCES
+        name_of = {x.id: x.name for x in SOURCES}
+        conn = db.get_conn()
+        changed = []
+        try:
+            for sid in sorted(DOMESTIC_DIRECT | FOREIGN_DIRECT):
+                name = name_of.get(sid)
+                if not name:
+                    continue
+                is_domestic = sid in DOMESTIC_DIRECT
+                want_proxy = (mode == "intl") if is_domestic else (mode == "cn")
+                conn.execute("UPDATE sources SET proxy_mode=?, proxy_url=? WHERE name=?",
+                             ("proxy" if want_proxy else "direct",
+                              proxy_url if want_proxy else "", name))
+                changed.append({"id": sid, "name": name, "proxy": want_proxy})
+            conn.commit()
+        finally:
+            conn.close()
+        return {"ok": True, "mode": mode, "proxy_url": proxy_url, "changed": changed,
+                "note": "只影响直连型源；桥接源与 Amazon 榜单跟随系统网络"}
+
+    @app.post("/api/sources/set-proxy")
+    def set_proxy(payload: dict = Body(default={})):
+        """把指定源切到代理（用于体检后一键修复失败的直连源）。"""
+        ids = payload.get("ids") or []
+        proxy_url = (payload.get("proxy_url") or "").strip()
+        from .. import settings_store
+        if not proxy_url:
+            proxy_url = settings_store.get("proxy_url_default") or "http://127.0.0.1:7897"
+        if not ids:
+            return {"ok": False, "error": "没有指定要切换的源"}
+        from ..sources.registry import SOURCES
+        name_of = {x.id: x.name for x in SOURCES}
+        conn = db.get_conn()
+        n = 0
+        try:
+            for sid in ids:
+                name = name_of.get(sid)
+                if not name:
+                    continue
+                cur = conn.execute("UPDATE sources SET proxy_mode='proxy', proxy_url=? WHERE name=?",
+                                   (proxy_url, name))
+                n += cur.rowcount
+            conn.commit()
+        finally:
+            conn.close()
+        return {"ok": True, "count": n, "proxy_url": proxy_url}
+
     # ---------------- 源体检（异地/换网络后一键检查） ----------------
     @app.post("/api/sources/check")
     def sources_check():
@@ -401,13 +468,13 @@ def create_app() -> FastAPI:
 
         conn = db.get_conn()
         try:
-            rows = {r["id"]: dict(r) for r in conn.execute(
-                "SELECT id, enabled, proxy_mode, proxy_url FROM sources")}
+            rows = {r["name"]: dict(r) for r in conn.execute(
+                "SELECT name, enabled, proxy_mode, proxy_url FROM sources")}
         finally:
             conn.close()
 
         def one(spec):
-            row = rows.get(spec.id) or {}
+            row = rows.get(spec.name) or {}
             if not row.get("enabled", 1):
                 return {"id": spec.id, "name": spec.name, "skipped": True}
             t0 = _t.time()
@@ -433,11 +500,11 @@ def create_app() -> FastAPI:
                 if r.get("skipped"):
                     continue
                 if r.get("ok"):
-                    conn.execute("UPDATE sources SET last_ok_at=?, last_error=NULL, last_count=? WHERE id=?",
-                                 (now, r["count"], r["id"]))
+                    conn.execute("UPDATE sources SET last_ok_at=?, last_error=NULL, last_count=? WHERE name=?",
+                                 (now, r["count"], r["name"]))
                 else:
-                    conn.execute("UPDATE sources SET last_error=? WHERE id=?",
-                                 (r.get("error") or "失败", r["id"]))
+                    conn.execute("UPDATE sources SET last_error=? WHERE name=?",
+                                 (r.get("error") or "失败", r["name"]))
             conn.commit()
         finally:
             conn.close()

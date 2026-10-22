@@ -96,12 +96,43 @@ button.ghost{background:rgba(120,180,255,.15);color:#cfe3ff;border:1px solid rgb
   </section>
 
   <section>
+    <h2>网络与采集模式</h2>
+    <div class="grid">
+      <label>当前出口</label>
+      <div>
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+          <b id="netNow" style="font-size:13px">检测中…</b>
+          <button id="btnNetRefresh" class="ghost">重新检测</button>
+        </div>
+        <div style="font-size:12px;color:#8fa3c4;margin-top:4px" id="netHint"></div>
+      </div>
+
+      <label>默认代理地址</label>
+      <div>
+        <input id="proxy_url_default" type="text" placeholder="http://127.0.0.1:7897">
+        <small>一键切代理时使用；只影响直连型源（桥接源与 Amazon 跟随系统网络）</small>
+      </div>
+
+      <label>一键切换</label>
+      <div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap">
+          <button id="btnModeCn" class="ghost">切到境内模式</button>
+          <button id="btnModeIntl" class="ghost">切到境外模式</button>
+          <button id="btnModeAuto" class="ghost">按当前网络自动匹配</button>
+        </div>
+        <div id="modeMsg" style="font-size:12px;margin-top:6px"></div>
+      </div>
+    </div>
+  </section>
+
+  <section>
     <h2>源体检（换网络后先点一下）</h2>
     <div class="grid">
       <label>一键探测</label>
       <div>
         <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
           <button id="btnCheck" class="ghost">体检全部源</button>
+          <button id="btnFixProxy" class="ghost" disabled>把失败的直连源切到代理</button>
           <span style="font-size:12px;color:#8fa3c4">只抓取、不调用模型、不写条目；约 10–60 秒</span>
         </div>
         <div id="checkMsg" style="font-size:12px;margin-top:6px"></div>
@@ -137,7 +168,7 @@ button.ghost{background:rgba(120,180,255,.15);color:#cfe3ff;border:1px solid rgb
 (function () {
   var FIELDS = ["coarse_model","deep_model","deep_limit","run_interval_minutes",
                 "monthly_budget_cny","budget_stop_ratio","budget_hard_ratio","item_retention_days",
-                "startup_catchup_rounds"];
+                "startup_catchup_rounds","proxy_url_default"];
   var SRCS = [];
 
   function $(id) { return document.getElementById(id); }
@@ -224,6 +255,50 @@ button.ghost{background:rgba(120,180,255,.15);color:#cfe3ff;border:1px solid rgb
     }).catch(function (e) { msg("保存失败：" + e.message, false); });
   });
 
+  // ===== 网络与采集模式 =====
+  var netNow = document.getElementById("netNow");
+  var netHint = document.getElementById("netHint");
+  var lastNet = null;
+  function loadNet(force) {
+    if (!netNow) return;
+    netNow.textContent = "检测中…";
+    fetch("/api/network" + (force ? "?refresh=1" : ""))
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        if (!j.ok) { netNow.textContent = "检测失败：" + (j.error || ""); return; }
+        lastNet = j;
+        netNow.textContent = (j.is_cn ? "境内" : "境外") + " · " + (j.ip || "?") + " · " + (j.region || "");
+        netHint.textContent = "检测于 " + (j.checked_at || "-") +
+          "；境内建议「境内模式」，境外建议「境外模式」（只影响直连型源）";
+      })
+      .catch(function (e) { netNow.textContent = "检测失败：" + e.message; });
+  }
+  function applyMode(mode) {
+    var m = document.getElementById("modeMsg");
+    var url = (document.getElementById("proxy_url_default") || {}).value || "";
+    m.textContent = "切换中…";
+    fetch("/api/sources/region-mode", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mode: mode, proxy_url: url })
+    }).then(function (r) { return r.json(); }).then(function (j) {
+      if (!j.ok) { m.textContent = "切换失败：" + (j.error || ""); return; }
+      var n = (j.changed || []).filter(function (x) { return x.proxy; }).length;
+      m.textContent = "已切换为「" + (j.mode === "cn" ? "境内" : "境外") + "」模式：" +
+        n + " 个直连源走代理，其余直连（下一轮采集生效）";
+      m.className = "ok";
+    }).catch(function (e) { m.textContent = "切换失败：" + e.message; });
+  }
+  var bnr = document.getElementById("btnNetRefresh");
+  if (bnr) bnr.onclick = function () { loadNet(true); };
+  var bcn = document.getElementById("btnModeCn");
+  if (bcn) bcn.onclick = function () { applyMode("cn"); };
+  var bint = document.getElementById("btnModeIntl");
+  if (bint) bint.onclick = function () { applyMode("intl"); };
+  var bauto = document.getElementById("btnModeAuto");
+  if (bauto) bauto.onclick = function () { applyMode(lastNet && lastNet.is_cn ? "cn" : "intl"); };
+  loadNet(false);
+  setInterval(function () { loadNet(false); }, 10 * 60 * 1000);
+
   var ckb = document.getElementById("btnCheck");
   if (ckb) {
     ckb.onclick = function () {
@@ -238,6 +313,16 @@ button.ghost{background:rgba(120,180,255,.15);color:#cfe3ff;border:1px solid rgb
           if (!j.ok) { m.textContent = "探测失败：" + (j.error || "未知"); m.className = "bad"; return; }
           m.textContent = "完成：可用 " + j.ok_count + " / " + j.total + "（" + j.checked_at + "）";
           m.className = "ok";
+          var failedDirect = (j.results || []).filter(function (r) {
+            return r.ok === false && /^(wscn|sina|gnews|weibo)/.test(r.id || "");
+          }).map(function (r) { return r.id; });
+          if (fixBtn) {
+            fixBtn.disabled = failedDirect.length === 0;
+            fixBtn.dataset.ids = failedDirect.join(",");
+            fixBtn.textContent = failedDirect.length
+              ? ("把失败的 " + failedDirect.length + " 个直连源切到代理")
+              : "没有失败的直连源";
+          }
           list.innerHTML = (j.results || []).map(function (r) {
             if (r.skipped) return '<div style="color:#6b7a94">· ' + r.name + '（已停用）</div>';
             var color = r.ok ? "#2ecc8f" : "#ff5b5b";
@@ -248,6 +333,26 @@ button.ghost{background:rgba(120,180,255,.15);color:#cfe3ff;border:1px solid rgb
         })
         .catch(function (e) { m.textContent = "探测失败：" + e.message; m.className = "bad"; })
         .finally(function () { ckb.disabled = false; });
+    };
+  }
+
+  var fixBtn2 = document.getElementById("btnFixProxy");
+  if (fixBtn2) {
+    fixBtn2.onclick = function () {
+      var ids = (fixBtn2.dataset.ids || "").split(",").filter(Boolean);
+      if (!ids.length) return;
+      var url = (document.getElementById("proxy_url_default") || {}).value || "";
+      var m = document.getElementById("checkMsg");
+      m.textContent = "切换中…";
+      fetch("/api/sources/set-proxy", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: ids, proxy_url: url })
+      }).then(function (r) { return r.json(); }).then(function (j) {
+        if (!j.ok) { m.textContent = "切换失败：" + (j.error || ""); return; }
+        m.textContent = "已把 " + j.count + " 个源切到代理（" + j.proxy_url + "），下一轮生效";
+        m.className = "ok";
+        fixBtn2.disabled = true;
+      }).catch(function (e) { m.textContent = "切换失败：" + e.message; });
     };
   }
 

@@ -20,6 +20,7 @@ DEFAULTS = {
     "budget_stop_ratio": 0.10,      # 剩余 <10% 停深加工
     "budget_hard_ratio": 0.02,      # 剩余 <2% 停所有模型调用
     "item_retention_days": 90,
+    "proxy_url_default": "http://127.0.0.1:7897",   # 一键切代理时用的默认地址
     "startup_catchup_rounds": 1,     # 开机/启动时最多补跑几轮（0–5）
 }
 
