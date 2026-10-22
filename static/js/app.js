@@ -61,7 +61,8 @@
       api("/api/batches").catch(function () { return null; }),
       api("/api/leads?batch=latest&limit=50").catch(function () { return null; }),
       api("/api/run/status").catch(function () { return null; }),
-      api("/api/budget").catch(function () { return null; })
+      api("/api/budget").catch(function () { return null; }),
+      api("/api/platform_items?limit=40").catch(function () { return null; })
     ];
     var res = await Promise.all(tasks);
     HEALTH = res[0];
@@ -69,6 +70,7 @@
     BATCHES = (res[2] && res[2].batches) || [];
     RUN = res[4];
     BUDGET = res[5];
+    window.__platform = (res[6] && res[6].items) || [];
     // 合并最近几个含线索的批次（latest 批优先 + 最近几个 deep_ok>0 的批，标题全部来自真实接口）
     var latestLeads = (res[3] && res[3].leads) || [];
     var latestBid = (res[3] && res[3].batch_id) || null;
@@ -274,6 +276,10 @@
     put("pS3", s3, cardHTML, "暂无 S3 交易结构线索");
     put("pOld", oldA, cardHTML, "暂无更早批次线索");
     put("pEx", EXCL, exHTML, "暂无已排除条目");
+    var platBox = $("pPlat");
+    if (platBox) platBox.innerHTML = platHTML();
+    var platCnt = $("cPlat");
+    if (platCnt) platCnt.textContent = (window.__platform || []).length;
     // 内容溢出的面板加底部渐隐提示（否则隐藏滚动条后看不出还有内容）
     Array.prototype.forEach.call(document.querySelectorAll("#grid .panel"), function (pn) {
       var box = pn.querySelector(".pc");
@@ -310,6 +316,30 @@
     vis.forEach(function (l) { titles["l" + l.id] = 1; });
     EXCL.slice(0, 40).forEach(function (x) { titles["x" + x.id] = 1; });
     window.__cards = Object.keys(titles).length;
+  }
+
+  // 平台信号：热搜 / 榜单原始条目（非线索卡），按来源分组展示
+  function platHTML() {
+    var rows = window.__platform || [];
+    if (!rows.length) return '<div class="empty">当前批次暂无平台侧条目</div>';
+    var by = {};
+    rows.forEach(function (r) { (by[r.source] = by[r.source] || []).push(r); });
+    var html = "";
+    Object.keys(by).forEach(function (src) {
+      html += '<div class="pg"><div class="pg-t">' + esc(src) + "</div>";
+      by[src].forEach(function (r) {
+        var meta = [];
+        if (r.rank) meta.push("第 " + r.rank + " 位");
+        if (r.heat) meta.push("热度 " + r.heat);
+        if (r.is_duplicate) meta.push("重复");
+        html += '<a class="prow" href="/static/detail.html?id=' + r.id + '" target="_blank">' +
+          '<span class="pr-t">' + esc(r.title) + "</span>" +
+          (meta.length ? '<span class="pr-m">' + esc(meta.join(" · ")) + "</span>" : "") +
+          "</a>";
+      });
+      html += "</div>";
+    });
+    return html;
   }
 
   function buildDots() {

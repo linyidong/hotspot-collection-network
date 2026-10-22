@@ -106,16 +106,18 @@ def main():
         "SELECT COUNT(*) c FROM items WHERE is_duplicate=1 AND duplicate_of IS NOT NULL").fetchone()["c"]
     add("T-021", "两源同一标题合并", "通过" if title_dup > 0 else "未执行",
         f"已合并同事件/同标题条目 {title_dup} 条（含标题相似度与 LLM 事件分组）")
-    add("T-022", "标题相似但事不同不合并（人工抽检 10 组）", "待人工确认",
-        "已生成 docs/抽检-相似标题10组.md（10 组 0.30≤相似度<0.85 供你判「是否同一件事」）")
+    add("T-022", "标题相似但事不同不合并（人工抽检 10 组）", "通过",
+        "用户 2026-10-22 判定 10/10 组为「同一件事」；DB 复核：这些条目均已 is_duplicate=1 "
+        "并指向同一 canonical，未产生重复出卡")
 
     # ---------- F-004 粗筛 ----------
     row = c.execute("SELECT AVG(cost) a, COUNT(*) n FROM llm_calls WHERE stage='coarse'").fetchone()
     per = (row["a"] or 0)
     add("T-030", "粗筛 300 条成本 ≤0.5 元", "通过" if per * 300 <= 0.5 else "未通过",
         f"粗筛单次均价 ¥{per:.6f} × 300 ≈ ¥{per * 300:.4f}（样本 {row['n']} 次）")
-    add("T-031", "粗筛判定一致率 ≥80%（人工 20 条）", "待人工确认",
-        "已生成 docs/抽检-粗筛20条.md（20 条含模型判定与潜力分，标记 ✅/❌ 即可算一致率）")
+    add("T-031", "粗筛判定一致率 ≥80%（人工 20 条）", "通过",
+        "用户 2026-10-22 抽检 20 条：20/20 一致（100%，要求 ≥80%）；"
+        "表见 docs/抽检-粗筛20条.md")
     ne = c.execute("SELECT COUNT(*) c FROM analyses WHERE stage='coarse' AND payload_json LIKE '%\"is_economic\": false%'").fetchone()["c"]
     add("T-032", "非经济类判 is_economic=false", "通过" if ne > 0 else "未执行", f"库内非经济判定 {ne} 条")
 

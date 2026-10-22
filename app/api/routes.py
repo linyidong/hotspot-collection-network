@@ -390,6 +390,62 @@ def create_app() -> FastAPI:
         return {"ok": True, "settings": data,
                 "note": "模型与限额下一轮生效；轮次间隔需重启服务后生效"}
 
+    # ---------------- 平台信号（热搜 / 榜单类原始条目） ----------------
+    PLATFORM_SOURCE_NAMES = ("微博热搜", "抖音热点榜", "百度热搜")
+
+    @app.get("/api/platform_items")
+    def platform_items(per_source: int = 12):
+        """最近一批里的平台侧条目：热搜在前、榜单在后；每个源最多 per_source 条。"""
+        import re as _re
+        per_source = max(1, min(int(per_source), 30))
+        conn = db.get_conn()
+        try:
+            batch = conn.execute("SELECT MAX(id) b FROM batches").fetchone()["b"]
+            if batch is None:
+                return {"batch_id": None, "items": [], "count": 0}
+            rows = conn.execute(
+                "SELECT i.id, i.title, i.summary, i.url, i.published_at, i.is_duplicate, "
+                "       s.name AS source FROM items i JOIN sources s ON s.id=i.source_id "
+                "WHERE i.batch_id=? AND (s.name IN (?,?,?) OR s.name LIKE 'Amazon%') "
+                "ORDER BY i.id", (batch, *PLATFORM_SOURCE_NAMES)).fetchall()
+        finally:
+            conn.close()
+
+        JUNK = ("click for details", "shop now", "sponsored")
+        groups, order = {}, []
+        for r in rows:
+            d = dict(r)
+            title = (d.get("title") or "").strip()
+            if not title or len(title) < 6 or title.lower() in JUNK:
+                continue
+            summary = d.get("summary") or ""
+            m = _re.search(r"第\s*(\d+)\s*[位名]", summary)
+            h = _re.search(r"热度\s*([0-9.]+)", summary)
+            d["rank"] = int(m.group(1)) if m else None
+            if d["rank"] == 0:
+                d["rank"] = None          # 微博接口 rank 从 0 开始，0 视为无排名
+            d["heat"] = h.group(1) if h else None
+            d.pop("summary", None)
+            src = d["source"]
+            if src not in groups:
+                groups[src] = {"fresh": [], "dup": []}
+                order.append(src)
+            bucket = groups[src]["dup"] if d.get("is_duplicate") else groups[src]["fresh"]
+            if len(bucket) < per_source:
+                bucket.append(d)
+
+        # 热搜优先（微博/抖音/百度），其次 Amazon 榜单
+        def prio(name):
+            return (0, PLATFORM_SOURCE_NAMES.index(name)) if name in PLATFORM_SOURCE_NAMES else (1, name)
+        order.sort(key=prio)
+        items = []
+        for src in order:
+            g = groups[src]
+            items.extend((g["fresh"] + g["dup"])[:per_source])
+        return {"batch_id": batch, "items": items, "count": len(items),
+                "by_source": {src: len((groups[src]["fresh"] + groups[src]["dup"])[:per_source])
+                              for src in order}}
+
     # ---------------- 出口网络 & 采集模式切换 ----------------
     DOMESTIC_DIRECT = {"wscn-global", "wscn-a-stock", "wscn-forex", "sina", "weibo-hot"}
     FOREIGN_DIRECT = {"gnews-kuajing", "gnews-xuanpin", "gnews-guanshui",
