@@ -4,6 +4,7 @@
     Ctrl+C 一并关闭桥子进程；`python run.py --fetch-once` 只跑一轮采集后退出。
     关键依赖：app.config / app.db / app.bridge / app.api.routes / app.sources.*、fastapi、uvicorn。"""
 import importlib.util
+import os
 import socket
 import sys
 
@@ -45,6 +46,15 @@ if PLATFORM_SNAPSHOT:
     print(f"快照时间：{snap.get('ts')} → data/platform_snapshot.json")
     sys.exit(0)
 
+# --catchup N：开机/启动时最多补跑几轮（0–5，覆盖界面设置）
+if "--catchup" in sys.argv:
+    _ci = sys.argv.index("--catchup")
+    try:
+        os.environ["CATCHUP_ROUNDS"] = str(max(0, min(5, int(sys.argv[_ci + 1]))))
+    except (IndexError, ValueError):
+        print("错误：--catchup 需要一个 0-5 的整数，例如 --catchup 2")
+        sys.exit(1)
+
 # --deep-limit N：本轮深加工上限（T5；默认取 config.DEEP_LIMIT_PER_RUN）
 DEEP_LIMIT = None
 if "--deep-limit" in sys.argv:
@@ -85,8 +95,8 @@ if not FETCH_ONCE and not RUN_ONCE and not PLATFORM_SNAPSHOT:
 
 # ===== 5. 建库建表 =====
 _tables = init_db()
-if len(_tables) != 8:
-    print(f"错误：数据库表数量异常（期望 8，实际 {len(_tables)}：{_tables}）。")
+if len(_tables) < 8:
+    print(f"错误：数据库表数量异常（至少 8，实际 {len(_tables)}：{_tables}）。")
     print("怎么办：删除 data/app.db 后重新运行 python run.py（会重新建表）。")
     sys.exit(1)
 

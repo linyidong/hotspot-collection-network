@@ -66,6 +66,9 @@ SCHEMA = [
         unit_price_out REAL NOT NULL DEFAULT 0,
         cost REAL NOT NULL DEFAULT 0,
         created_at TEXT NOT NULL)""",
+    """CREATE TABLE IF NOT EXISTS heartbeats(
+  ts TEXT PRIMARY KEY
+)""",
     """CREATE TABLE IF NOT EXISTS config(
         key TEXT PRIMARY KEY,
         value TEXT)""",
@@ -118,7 +121,7 @@ def table_names(conn: sqlite3.Connection = None) -> list:
 
 
 def db_ok() -> tuple:
-    """健康检查：连接是否可用、是否恰好 8 张表。返回 (ok: bool, tables: list)。"""
+    """健康检查：连接是否可用、表是否齐全（>=8）。返回 (ok: bool, tables: list)。"""
     try:
         names = table_names()
         ok = len(names) == 8 and "batches" in names and "items" in names

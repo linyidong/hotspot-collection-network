@@ -20,6 +20,7 @@ DEFAULTS = {
     "budget_stop_ratio": 0.10,      # 剩余 <10% 停深加工
     "budget_hard_ratio": 0.02,      # 剩余 <2% 停所有模型调用
     "item_retention_days": 90,
+    "startup_catchup_rounds": 1,     # 开机/启动时最多补跑几轮（0–5）
 }
 
 # 已知可用的模型名（新增模型时在这里补一行；写错名字会在保存时被拒）
@@ -32,6 +33,7 @@ _RULES = {
     "deep_limit": (int, (0, 100)),
     "deep_per_category": (int, (0, 20)),
     "run_interval_minutes": (int, (0, 1440)),
+    "startup_catchup_rounds": (int, (0, 5)),
     "monthly_budget_cny": (float, (1, 100000)),
     "budget_stop_ratio": (float, (0, 1)),
     "budget_hard_ratio": (float, (0, 1)),

@@ -111,6 +111,20 @@ def _interval_minutes() -> int:
         return 0
 
 
+def _heartbeat_now():
+    """写一条在线心跳（审计用它区分「服务离线/睡眠」与「真漏轮」）。"""
+    try:
+        from . import db
+        from .scheduling_audit import record_heartbeat
+        conn = db.get_conn()
+        try:
+            record_heartbeat(conn)
+        finally:
+            conn.close()
+    except Exception as exc:
+        print(f"[心跳] 写入失败：{type(exc).__name__}: {exc}", flush=True)
+
+
 def _backup_now():
     """每日数据库备份（保留 7 份）：失败只记日志，不影响采集。"""
     try:
@@ -171,6 +185,9 @@ def start(deep_limit=None):
         note = "每日 08/11/14/17/20/23"
 
     # 每日过期数据清理（04:05，失败只记日志）
+    sched.add_job(_heartbeat_now, IntervalTrigger(minutes=5), id="heartbeat",
+                  max_instances=1, coalesce=True, misfire_grace_time=600)
+
     sched.add_job(_platform_snapshot_now, CronTrigger(hour=5, minute=0), id="platform_snapshot_daily",
                   max_instances=1, coalesce=True)
 
@@ -199,6 +216,7 @@ def start(deep_limit=None):
     except Exception as exc:
         print(f"[平台榜单] 启动线程失败：{exc}", flush=True)
 
+    _heartbeat_now()      # 启动立即写一条，避免开机到首个 5 分钟空窗被算成离线
     _cleanup_now()
     job = sched.get_jobs()[0]
     globals()["_SCHED"] = sched
@@ -215,9 +233,25 @@ def start(deep_limit=None):
         except ValueError:
             need = True
     if need:
-        print(f"[调度] 上次完成于 {last or '从未'}，启动补跑 1 次", flush=True)
-        threading.Thread(target=run_round, args=("自动", _DEEP_LIMIT),
-                         daemon=True).start()
+        # 补跑轮数：环境变量 CATCHUP_ROUNDS > 界面设置 > 默认 1（上限 5）
+        try:
+            from . import settings_store as _ss
+            catchup = int(os.environ.get("CATCHUP_ROUNDS", "")
+                          or _ss.get("startup_catchup_rounds") or 1)
+        except (TypeError, ValueError):
+            catchup = 1
+        catchup = max(0, min(5, catchup))
+        if catchup > 0:
+            print(f"[调度] 上次完成于 {last or '从未'}，启动补跑最多 {catchup} 轮", flush=True)
+
+            def _catchup_loop(n):
+                for i in range(n):
+                    st = run_round("自动", _DEEP_LIMIT)
+                    if not st or st.get("status") in ("failed", "no_sources",
+                                                     "no_network", "stopped_budget"):
+                        print(f"[调度] 补跑第 {i + 1} 轮状态异常，停止补跑", flush=True)
+                        break
+            threading.Thread(target=_catchup_loop, args=(catchup,), daemon=True).start()
     _scheduler = sched
     return sched
 

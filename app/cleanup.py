@@ -41,6 +41,12 @@ def run(conn=None) -> dict:
             "DELETE FROM analyses WHERE item_id NOT IN (SELECT id FROM items)").rowcount
         n["llm_calls"] = conn.execute(
             "DELETE FROM llm_calls WHERE created_at < ?", (cutoff_calls,)).rowcount
+        # 心跳记录只留 30 天（用于调度审计）
+        try:
+            cutoff_hb = (now - timedelta(days=30)).strftime("%Y-%m-%d %H:%M:%S")
+            conn.execute("DELETE FROM heartbeats WHERE ts < ?", (cutoff_hb,))
+        except Exception:
+            pass
         conn.commit()
         return n
     finally:

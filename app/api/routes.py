@@ -390,6 +390,62 @@ def create_app() -> FastAPI:
         return {"ok": True, "settings": data,
                 "note": "模型与限额下一轮生效；轮次间隔需重启服务后生效"}
 
+    # ---------------- 源体检（异地/换网络后一键检查） ----------------
+    @app.post("/api/sources/check")
+    def sources_check():
+        """并发探测每个已启用源能否采到数据（不调用模型、不写 items）。"""
+        import time as _t
+        from concurrent.futures import ThreadPoolExecutor
+        from ..sources.collect import _build_source
+        from ..sources.registry import SOURCES
+
+        conn = db.get_conn()
+        try:
+            rows = {r["id"]: dict(r) for r in conn.execute(
+                "SELECT id, enabled, proxy_mode, proxy_url FROM sources")}
+        finally:
+            conn.close()
+
+        def one(spec):
+            row = rows.get(spec.id) or {}
+            if not row.get("enabled", 1):
+                return {"id": spec.id, "name": spec.name, "skipped": True}
+            t0 = _t.time()
+            try:
+                src = _build_source(spec, row.get("proxy_mode") or "direct",
+                                    row.get("proxy_url") or "")
+                items = src.fetch()
+                return {"id": spec.id, "name": spec.name, "ok": True,
+                        "count": len(items), "ms": int((_t.time() - t0) * 1000)}
+            except Exception as exc:
+                return {"id": spec.id, "name": spec.name, "ok": False, "count": 0,
+                        "error": f"{type(exc).__name__}: {exc}"[:220],
+                        "ms": int((_t.time() - t0) * 1000)}
+
+        with ThreadPoolExecutor(max_workers=6) as pool:
+            results = list(pool.map(one, SOURCES))
+
+        # 回写状态，让大屏与设置页同步显示
+        conn = db.get_conn()
+        try:
+            now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            for r in results:
+                if r.get("skipped"):
+                    continue
+                if r.get("ok"):
+                    conn.execute("UPDATE sources SET last_ok_at=?, last_error=NULL, last_count=? WHERE id=?",
+                                 (now, r["count"], r["id"]))
+                else:
+                    conn.execute("UPDATE sources SET last_error=? WHERE id=?",
+                                 (r.get("error") or "失败", r["id"]))
+            conn.commit()
+        finally:
+            conn.close()
+
+        ok_n = sum(1 for r in results if r.get("ok"))
+        return {"ok": True, "checked_at": now, "ok_count": ok_n,
+                "total": sum(1 for r in results if not r.get("skipped")), "results": results}
+
     # ---------------- T12：手动清理 ----------------
     @app.post("/api/cleanup")
     def cleanup_now(days: int = Body(default=0, embed=True)):

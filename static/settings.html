@@ -70,6 +70,12 @@ button.ghost{background:rgba(120,180,255,.15);color:#cfe3ff;border:1px solid rgb
       <div><input id="budget_stop_ratio" type="number" min="0" max="1" step="0.01"><small>剩余低于此比例时停深加工（默认 0.10）</small></div>
       <label>硬停比例</label>
       <div><input id="budget_hard_ratio" type="number" min="0" max="1" step="0.01"><small>剩余低于此比例时停所有模型调用（默认 0.02）</small></div>
+      <label>开机补跑轮数</label>
+      <div>
+        <input id="startup_catchup_rounds" type="number" min="0" max="5" step="1">
+        <small>关机/睡眠后启动时最多补跑几轮（0–5，默认 1）</small>
+      </div>
+
       <label>条目保留天数</label>
       <div><input id="item_retention_days" type="number" min="1" max="3650"><small>天</small></div>
     </div>
@@ -85,6 +91,21 @@ button.ghost{background:rgba(120,180,255,.15);color:#cfe3ff;border:1px solid rgb
           <span style="font-size:12px;color:#8fa3c4">按上面「条目保留天数」执行；日志保留 30 天</span>
         </div>
         <div id="cleanMsg" style="font-size:12px;margin-top:6px"></div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>源体检（换网络后先点一下）</h2>
+    <div class="grid">
+      <label>一键探测</label>
+      <div>
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+          <button id="btnCheck" class="ghost">体检全部源</button>
+          <span style="font-size:12px;color:#8fa3c4">只抓取、不调用模型、不写条目；约 10–60 秒</span>
+        </div>
+        <div id="checkMsg" style="font-size:12px;margin-top:6px"></div>
+        <div id="checkList" style="font-size:12px;margin-top:6px;line-height:1.9"></div>
       </div>
     </div>
   </section>
@@ -115,7 +136,8 @@ button.ghost{background:rgba(120,180,255,.15);color:#cfe3ff;border:1px solid rgb
 <script>
 (function () {
   var FIELDS = ["coarse_model","deep_model","deep_limit","run_interval_minutes",
-                "monthly_budget_cny","budget_stop_ratio","budget_hard_ratio","item_retention_days"];
+                "monthly_budget_cny","budget_stop_ratio","budget_hard_ratio","item_retention_days",
+                "startup_catchup_rounds"];
   var SRCS = [];
 
   function $(id) { return document.getElementById(id); }
@@ -201,6 +223,33 @@ button.ghost{background:rgba(120,180,255,.15);color:#cfe3ff;border:1px solid rgb
       });
     }).catch(function (e) { msg("保存失败：" + e.message, false); });
   });
+
+  var ckb = document.getElementById("btnCheck");
+  if (ckb) {
+    ckb.onclick = function () {
+      var m = document.getElementById("checkMsg"), list = document.getElementById("checkList");
+      ckb.disabled = true;
+      m.textContent = "探测中…（最多约 60 秒）";
+      m.className = "";
+      list.innerHTML = "";
+      fetch("/api/sources/check", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" })
+        .then(function (r) { return r.json(); })
+        .then(function (j) {
+          if (!j.ok) { m.textContent = "探测失败：" + (j.error || "未知"); m.className = "bad"; return; }
+          m.textContent = "完成：可用 " + j.ok_count + " / " + j.total + "（" + j.checked_at + "）";
+          m.className = "ok";
+          list.innerHTML = (j.results || []).map(function (r) {
+            if (r.skipped) return '<div style="color:#6b7a94">· ' + r.name + '（已停用）</div>';
+            var color = r.ok ? "#2ecc8f" : "#ff5b5b";
+            var txt = r.ok ? ("✓ " + r.count + " 条 · " + r.ms + "ms") : ("✗ " + (r.error || "失败"));
+            return '<div style="color:' + color + '">' + (r.ok ? "✓" : "✗") + " " + r.name +
+                   ' <span style="color:#8fa3c4">' + txt.replace(/^[✓✗]\s*/, "") + "</span></div>";
+          }).join("");
+        })
+        .catch(function (e) { m.textContent = "探测失败：" + e.message; m.className = "bad"; })
+        .finally(function () { ckb.disabled = false; });
+    };
+  }
 
   var cb = document.getElementById("btnClean");
   if (cb) {
