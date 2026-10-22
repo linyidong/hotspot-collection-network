@@ -14,7 +14,10 @@ echo "  http://127.0.0.1:${PORT}/"
 echo "============================================"
 
 if [ -f .env ]; then
-  set -a; source .env; set +a
+  # .env 可能是在 Windows 上建的（CRLF），先去掉 \r 再 source，否则 PORT 会变成 "9000\r"
+  set -a
+  source <(tr -d '\r' < .env)
+  set +a
 fi
 PORT="${PORT:-9000}"
 

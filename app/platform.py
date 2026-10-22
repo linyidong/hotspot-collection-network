@@ -3,7 +3,7 @@
 职责：用本机 headless Chrome 打开 Amazon Best Sellers 等榜单页，抽取商品名与链接，
       写入 data/platform_snapshot.json；采集层按快照生成条目（日更即可，不跟 3 小时轮次）。
       Chrome 打开失败 / 页面改版 → 记 last_error，绝不影响其它源。
-关键依赖：subprocess（调用本机 chrome.exe）、json、html.parser。
+关键依赖：subprocess（调用本机 Chrome，Windows/macOS/Linux 路径均已适配）、json、html.parser。
 """
 import html
 import json
@@ -48,7 +48,7 @@ def _chrome_path() -> str:
     found = shutil.which("chrome") or shutil.which("chrome.exe")
     if found:
         return found
-    raise FileNotFoundError("找不到 chrome.exe（平台榜单需要本机 Chrome）")
+    raise FileNotFoundError("找不到 Chrome（平台榜单需要本机 Chrome：Windows 装 Chrome，macOS 放 /Applications，Linux 装 google-chrome）")
 
 
 class _LinkText(HTMLParser):
@@ -91,7 +91,7 @@ def _fetch_dom(url: str, wait_ms: int = 12000) -> str:
     """用 headless Chrome 抓渲染后的 DOM。"""
     chrome = _chrome_path()
     prof = tempfile.mkdtemp(prefix="plat-")
-    cmd = [chrome, "--headless", "--disable-gpu", "--no-first-run",
+    cmd = [chrome, "--headless=new", "--disable-gpu", "--no-first-run",
            f"--virtual-time-budget={wait_ms}", f"--user-data-dir={prof}",
            "--dump-dom", url]
     try:
@@ -99,6 +99,10 @@ def _fetch_dom(url: str, wait_ms: int = 12000) -> str:
     finally:
         shutil.rmtree(prof, ignore_errors=True)
     dom = (out.stdout or b"").decode("utf-8", "ignore")
+    if len(dom) < 2000:          # 新版 headless 参数不兼容时回退旧参数
+        cmd2 = [c.replace("--headless=new", "--headless") for c in cmd]
+        out2 = subprocess.run(cmd2, capture_output=True, timeout=90)
+        dom = (out2.stdout or b"").decode("utf-8", "ignore")
     if len(dom) < 2000:
         raise RuntimeError(f"页面内容为空（可能是反爬/改版）：{url}")
     return dom

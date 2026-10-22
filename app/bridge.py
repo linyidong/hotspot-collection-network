@@ -43,33 +43,46 @@ class RssBridge:
 
     # ---------- 启动 ----------
     def _port_owner_pid(self):
-        """找出监听本桥端口的 PID（Windows netstat）。"""
+        """找出监听本桥端口的 PID（Windows 用 netstat，macOS/Linux 用 lsof）。"""
         try:
-            out = subprocess.check_output(["netstat", "-ano", "-p", "tcp"],
+            if os.name == "nt":
+                out = subprocess.check_output(["netstat", "-ano", "-p", "tcp"],
+                                              text=True, timeout=8, errors="ignore")
+                for line in out.splitlines():
+                    parts = line.split()
+                    if len(parts) >= 5 and parts[3] == "LISTENING" and parts[1].endswith(":%d" % self.port):
+                        try:
+                            return int(parts[4])
+                        except ValueError:
+                            return None
+                return None
+            out = subprocess.check_output(["lsof", "-ti", "tcp:%d" % self.port, "-sTCP:LISTEN"],
                                           text=True, timeout=8, errors="ignore")
+            for line in out.split():
+                try:
+                    return int(line.strip())
+                except ValueError:
+                    continue
+            return None
         except (OSError, subprocess.SubprocessError):
             return None
-        for line in out.splitlines():
-            parts = line.split()
-            if len(parts) >= 5 and parts[3] == "LISTENING" and parts[1].endswith(":%d" % self.port):
-                try:
-                    return int(parts[4])
-                except ValueError:
-                    return None
-        return None
 
     def _pid_is_our_bridge(self, pid: int) -> bool:
         """确认该 PID 是 china-finance-rss 桥（避免误杀其它程序）。"""
         try:
-            out = subprocess.check_output(
-                ["wmic", "process", "where", "ProcessId=%d" % pid, "get", "CommandLine", "/value"],
-                text=True, timeout=10, errors="ignore")
+            if os.name == "nt":
+                out = subprocess.check_output(
+                    ["wmic", "process", "where", "ProcessId=%d" % pid, "get", "CommandLine", "/value"],
+                    text=True, timeout=10, errors="ignore")
+            else:
+                out = subprocess.check_output(["ps", "-p", str(pid), "-o", "command="],
+                                              text=True, timeout=10, errors="ignore")
             return "china-finance-rss" in out
         except (OSError, subprocess.SubprocessError):
             return False
 
     def _clear_stale_port(self) -> bool:
-        """端口被僵死的旧桥占用时清掉它（只清本项目的桥）。"""
+        """端口被僵死的旧桥占用时清掉它（只清本项目的桥，跨平台）。"""
         pid = self._port_owner_pid()
         if not pid or pid == (self.proc.pid if self.proc else -1):
             return False
@@ -78,8 +91,10 @@ class RssBridge:
             return False
         print(f"[bridge] 发现僵死的旧桥进程 pid={pid}，清理后重启", flush=True)
         try:
-            subprocess.run(["taskkill", "/PID", str(pid), "/F"],
-                           capture_output=True, timeout=10)
+            if os.name == "nt":
+                subprocess.run(["taskkill", "/PID", str(pid), "/F"], capture_output=True, timeout=10)
+            else:
+                os.kill(pid, 9)
             time.sleep(0.6)
             return True
         except (OSError, subprocess.SubprocessError):
