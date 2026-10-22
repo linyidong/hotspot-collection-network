@@ -78,6 +78,14 @@ SOURCES = [
         id="weibo-hot", name="微博热搜", type="json",
         path="weibo", channel="hot",
         url="https://weibo.com/ajax/side/hotSearch"),
+    SourceSpec(
+        id="douyin-hot", name="抖音热点榜", type="json",
+        path="douyin", channel="hot",
+        url="https://www.douyin.com/aweme/v1/web/hot/search/list/"),
+    SourceSpec(
+        id="baidu-hot", name="百度热搜", type="json",
+        path="baidu", channel="hot",
+        url="https://top.baidu.com/api/board?platform=pc&tab=realtime"),
     # ---- T12 平台榜单（C 方案，日更快照）----
     SourceSpec(
         id="amazon-kitchen", name="Amazon·厨房家居榜", type="snapshot",

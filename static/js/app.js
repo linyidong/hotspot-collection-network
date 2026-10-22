@@ -458,7 +458,8 @@
 
   // ===== 采集来源列表（左抽屉）+ 逐源 直连/代理 开关 =====
   var DOMESTIC = { "cls": 1, "eastmoney": 1, "ths": 1, "jin10": 1, "sina": 1,
-                   "wscn-a-stock": 1, "wscn-rss": 1, "weibo-hot": 1 };
+                   "wscn-a-stock": 1, "wscn-rss": 1, "weibo-hot": 1,
+                   "douyin-hot": 1, "baidu-hot": 1 };
   function renderSources() {
     var box = $("srcList");
     if (!box) return;

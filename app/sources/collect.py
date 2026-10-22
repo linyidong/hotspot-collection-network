@@ -13,6 +13,8 @@ from ..config import settings
 from .registry import SOURCES
 from .gnews import GoogleNewsSource
 from .rss_bridge import RssBridgeSource
+from .baidu import BaiduHotSource
+from .douyin import DouyinHotSource
 from .sina import SinaSource
 from .snapshot import SnapshotSource
 from .weibo import WeiboHotSource
@@ -47,6 +49,10 @@ def _build_source(spec, proxy_mode: str, proxy_url: str):
     if spec.type == "rss":
         return GoogleNewsSource(spec, proxy_url=proxy, timeout=FETCH_TIMEOUT)
     if spec.type == "json":
+        if spec.path == "douyin":
+            return DouyinHotSource(spec, proxy_url=proxy, timeout=FETCH_TIMEOUT)
+        if spec.path == "baidu":
+            return BaiduHotSource(spec, proxy_url=proxy, timeout=FETCH_TIMEOUT)
         return WeiboHotSource(spec, proxy_url=proxy, timeout=FETCH_TIMEOUT)
     if spec.type == "snapshot":
         return SnapshotSource(spec, timeout=FETCH_TIMEOUT)
