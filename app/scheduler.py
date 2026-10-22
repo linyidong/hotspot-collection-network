@@ -167,7 +167,7 @@ def start(deep_limit=None):
         for h in (8, 11, 14, 17, 20, 23):
             sched.add_job(lambda: run_round("自动", _DEEP_LIMIT),
                           CronTrigger(hour=h, minute=0), id=f"round_{h}",
-                          max_instances=1, coalesce=True)
+                          max_instances=1, coalesce=True, misfire_grace_time=7200)
         note = "每日 08/11/14/17/20/23"
 
     # 每日过期数据清理（04:05，失败只记日志）

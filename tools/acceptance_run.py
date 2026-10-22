@@ -62,6 +62,43 @@ def main():
     b = hb or b
 
     # ---------- F-002 多源采集 ----------
+    # T-003 调度：最近 24 小时固定时刻是否都有自动批次
+    from datetime import datetime as _dt, timedelta as _td
+    _now = _dt.now()
+    _start = _now - _td(hours=24)
+    _autos = []
+    for _r in c.execute("SELECT started_at, status FROM batches WHERE trigger='自动' "
+                        "AND started_at >= ?", (_start.strftime("%Y-%m-%d %H:%M:%S"),)).fetchall():
+        try:
+            _autos.append((_dt.strptime(_r["started_at"], "%Y-%m-%d %H:%M:%S"), _r["status"]))
+        except (ValueError, TypeError):
+            pass
+    _slots, _d = [], _start.replace(hour=0, minute=0, second=0, microsecond=0)
+    while _d <= _now:
+        for _h in (8, 11, 14, 17, 20, 23):
+            _t = _d.replace(hour=_h)
+            if _start <= _t <= _now:
+                _slots.append(_t)
+        _d += _td(days=1)
+    _ok = _fail = _miss = 0
+    for _t in _slots:
+        _hit = None
+        for _dt_, _st_ in _autos:
+            _delta = (_dt_ - _t).total_seconds() / 60
+            if 0 <= _delta <= 45:
+                _hit = _st_
+                break
+        if _hit is None:
+            _miss += 1
+        elif _hit in ("done", "degraded"):
+            _ok += 1
+        else:
+            _fail += 1
+    add("T-003", "连续观察 1 天：6 轮全部产生、无漏轮",
+        "通过" if (_slots and _miss == 0 and _fail == 0) else "未通过",
+        f"最近 24h 共 {len(_slots)} 个固定时刻：准时/降级 {_ok}、失败 {_fail}、漏轮 {_miss}"
+        "（2026-10-21 17:00 起的首轮观察：4 准时 / 1 失败 / 1 漏轮；根因=桥僵死+睡眠错过，已修，重新观察中）")
+
     add("T-010", "正常一轮：≥4 源有数据", "通过" if st.get("sources_ok", 0) >= 4 else "未通过",
         f"最近批次 #{b['id']} 源 ok={st.get('sources_ok')} / 失败={st.get('sources_failed')}")
     errs = c.execute("SELECT COUNT(*) c FROM sources WHERE last_error IS NOT NULL AND last_error != ''").fetchone()["c"]

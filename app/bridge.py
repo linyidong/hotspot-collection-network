@@ -14,7 +14,7 @@ from .config import ROOT, settings
 
 # 桥脚本路径与健康检查地址
 BRIDGE_SCRIPT = ROOT / "third_party" / "china-finance-rss" / "server.py"
-MAX_RESTARTS = 2          # 进程内累计最多自动重启 2 次
+MAX_RESTARTS = 5          # 进程内累计最多自动重启 5 次
 PROBE_TIMEOUT = 3.0       # 单次健康探测超时（秒）
 START_WAIT = 0.4          # 启动后每次探测间隔（秒）
 START_TRIES = 15          # 最多探测次数（约 6 秒内确认起来）
@@ -42,6 +42,49 @@ class RssBridge:
             return False
 
     # ---------- 启动 ----------
+    def _port_owner_pid(self):
+        """找出监听本桥端口的 PID（Windows netstat）。"""
+        try:
+            out = subprocess.check_output(["netstat", "-ano", "-p", "tcp"],
+                                          text=True, timeout=8, errors="ignore")
+        except (OSError, subprocess.SubprocessError):
+            return None
+        for line in out.splitlines():
+            parts = line.split()
+            if len(parts) >= 5 and parts[3] == "LISTENING" and parts[1].endswith(":%d" % self.port):
+                try:
+                    return int(parts[4])
+                except ValueError:
+                    return None
+        return None
+
+    def _pid_is_our_bridge(self, pid: int) -> bool:
+        """确认该 PID 是 china-finance-rss 桥（避免误杀其它程序）。"""
+        try:
+            out = subprocess.check_output(
+                ["wmic", "process", "where", "ProcessId=%d" % pid, "get", "CommandLine", "/value"],
+                text=True, timeout=10, errors="ignore")
+            return "china-finance-rss" in out
+        except (OSError, subprocess.SubprocessError):
+            return False
+
+    def _clear_stale_port(self) -> bool:
+        """端口被僵死的旧桥占用时清掉它（只清本项目的桥）。"""
+        pid = self._port_owner_pid()
+        if not pid or pid == (self.proc.pid if self.proc else -1):
+            return False
+        if not self._pid_is_our_bridge(pid):
+            print(f"[bridge] 端口 {self.port} 被其它进程占用（pid={pid}），不自动清理", flush=True)
+            return False
+        print(f"[bridge] 发现僵死的旧桥进程 pid={pid}，清理后重启", flush=True)
+        try:
+            subprocess.run(["taskkill", "/PID", str(pid), "/F"],
+                           capture_output=True, timeout=10)
+            time.sleep(0.6)
+            return True
+        except (OSError, subprocess.SubprocessError):
+            return False
+
     def start(self) -> bool:
         """拉起桥进程并等待健康。失败给出中文原因并返回 False。"""
         if self.is_alive():
@@ -83,6 +126,17 @@ class RssBridge:
         """看护：桥不在则自动重启，进程内累计最多 MAX_RESTARTS 次。"""
         if self.is_alive():
             return True
+        # 进程还在但探测失败（僵死/被挂起）→ 强制干掉再重启
+        if self.proc and self.proc.poll() is None:
+            print("[bridge] 桥进程存在但不响应，强制重启", flush=True)
+            try:
+                self.proc.kill()
+                self.proc.wait(timeout=5)
+            except (OSError, subprocess.SubprocessError):
+                pass
+            self.proc = None
+            time.sleep(0.5)
+            self._clear_stale_port()
         if self.restarts >= MAX_RESTARTS:
             return False
         self.restarts += 1

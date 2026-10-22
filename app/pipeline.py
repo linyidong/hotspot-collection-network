@@ -326,6 +326,14 @@ def run_once(deep_limit: int = None, trigger: str = "手动") -> dict:
         conn.commit()
 
         # 2) 采集（含 sources 状态回写）
+        # 采集前确保 RSS 桥可用（夜间桥僵死时自动重启，避免 5 个桥源整轮 502）
+        try:
+            from .bridge import bridge
+            if not bridge.ensure():
+                stats["bridge_before"] = "unavailable"
+                print("[桥] 采集前检查：桥不可用，本轮桥源可能失败", flush=True)
+        except Exception as exc:
+            stats["bridge_before"] = f"error:{type(exc).__name__}"
         _t_collect = time.time()
         results = collect_once(conn=conn)
         stats["collect_s"] = round(time.time() - _t_collect, 1)
