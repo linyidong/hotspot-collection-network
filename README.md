@@ -26,6 +26,13 @@ pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
 
 ## 二、启动
 
+**双击桌面「热点采集网络-启动」** 即可：后台静默运行，不弹任何命令行窗口，浏览器自动打开。
+所有运行日志写到 `data/logs/app.log`（uvicorn 的逐请求日志已关闭，文件不会刷屏）。
+需要看日志：`Get-Content data\logs\app.log -Tail 50`。
+
+停止：双击「热点采集网络-停止」。
+
+
 ```bash
 python run.py
 ```

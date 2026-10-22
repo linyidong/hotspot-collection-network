@@ -181,8 +181,10 @@ import uvicorn
 from app.api.routes import create_app
 
 if __name__ == "__main__":
+    # access_log=False：不再为每个 /api 请求打印一行（前端每 60 秒轮询会刷屏）
     server = uvicorn.Server(uvicorn.Config(create_app(), host="127.0.0.1",
-                                           port=_port, log_level="info"))
+                                           port=_port, log_level="warning",
+                                           access_log=False))
     from app import scheduler as sched
     # 启动清理：上次被强杀留下的 running 批次，标记为 failed（避免僵尸批次）
     try:
