@@ -41,9 +41,10 @@ class GoogleNewsSource(BaseSource):
         if base not in queries:
             queries = [base] + queries
         feed = None
-        with httpx.Client(timeout=self.timeout, proxy=self.proxy_url,
+        _btimeout = httpx.Timeout(self.timeout, connect=8.0)
+        with httpx.Client(timeout=_btimeout, proxy=self.proxy_url,
                           follow_redirects=True) as client:
-            for q in queries:
+            for q in queries[:2]:
                 url = ("https://www.bing.com/news/search?q=" + quote(q)
                        + "&format=RSS&setlang=zh-cn")
                 for attempt in range(2):
@@ -95,21 +96,23 @@ class GoogleNewsSource(BaseSource):
         import time as _time
         raw = None
         last_err = None
-        with httpx.Client(timeout=self.timeout, proxy=self.proxy_url,
+        # connect 单独短超时：坏网络下最多 8s/次，避免把整轮采集拖到 90s+
+        _timeout = httpx.Timeout(self.timeout, connect=8.0)
+        with httpx.Client(timeout=_timeout, proxy=self.proxy_url,
                           follow_redirects=True) as client:
-            for attempt in range(3):
+            for attempt in range(2):
                 try:
                     resp = client.get(self.spec.url, headers=headers)
                     if resp.status_code in (429, 500, 502, 503, 504):
                         last_err = f"HTTP {resp.status_code}（Google 限流/上游错误）"
-                        _time.sleep(1.5 * (attempt + 1) + 0.7 * attempt)
+                        _time.sleep(2.0)
                         continue
                     resp.raise_for_status()
                     raw = resp.content
                     break
                 except httpx.HTTPError as exc:
                     last_err = f"{type(exc).__name__}: {exc}"
-                    _time.sleep(1.2 * (attempt + 1))
+                    _time.sleep(1.5)
         if raw is None:
             # Google 整体 503（IP 级限流）时，自动降级到必应新闻 RSS
             try:
