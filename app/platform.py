@@ -99,17 +99,30 @@ def _fetch_dom(url: str, wait_ms: int = 12000) -> str:
     finally:
         shutil.rmtree(prof, ignore_errors=True)
     dom = (out.stdout or b"").decode("utf-8", "ignore")
-    if len(dom) < 2000:          # 新版 headless 参数不兼容时回退旧参数
-        cmd2 = [c.replace("--headless=new", "--headless") for c in cmd]
-        out2 = subprocess.run(cmd2, capture_output=True, timeout=90)
-        dom = (out2.stdout or b"").decode("utf-8", "ignore")
+    if len(dom) < 2000:          # 失败：换一组更"像浏览器"的参数再试一次
+        cmd2 = [c.replace("--headless=new", "--headless")
+                for c in cmd if c != "--no-first-run"]
+        cmd2.insert(1, "--lang=zh-CN")
+        cmd2.insert(2, "--disable-blink-features=AutomationControlled")
+        cmd2.insert(3, "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                       "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36")
+        try:
+            out2 = subprocess.run(cmd2, capture_output=True, timeout=120)
+            dom = (out2.stdout or b"").decode("utf-8", "ignore")
+        except subprocess.SubprocessError:
+            pass
     if len(dom) < 2000:
         raise RuntimeError(f"页面内容为空（可能是反爬/改版）：{url}")
     return dom
 
 
 def refresh(pages: dict, per_page: int = 20) -> dict:
-    """刷新榜单快照。pages: {page_key: (label, url)}；返回快照 dict。"""
+    """刷新榜单快照。pages: {page_key: (label, url)}；返回快照 dict。
+
+    抓取失败的页面会保留「上一份快照」里的数据（标记 stale），避免一次反爬就把全部榜单清空。
+    """
+    prev = load()
+    prev_pages = prev.get("pages") or {}
     snap = {"ts": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "pages": {}, "errors": {}}
     for key, (label, url) in pages.items():
         try:
@@ -130,8 +143,12 @@ def refresh(pages: dict, per_page: int = 20) -> dict:
             if not items:
                 raise RuntimeError("未解析到商品（页面可能改版）")
             snap["pages"][key] = {"label": label, "url": url, "items": items}
-        except Exception as exc:                 # 单页失败不影响其它页
+        except Exception as exc:                 # 单页失败：保留旧数据，只记错误
             snap["errors"][key] = f"{type(exc).__name__}: {exc}"
+            old_page = prev_pages.get(key)
+            if old_page and old_page.get("items"):
+                snap["pages"][key] = dict(old_page, stale=True,
+                                          fetched_at=prev.get("ts") or "")
     SNAPSHOT_PATH.parent.mkdir(parents=True, exist_ok=True)
     SNAPSHOT_PATH.write_text(json.dumps(snap, ensure_ascii=False, indent=2), encoding="utf-8")
     return snap
