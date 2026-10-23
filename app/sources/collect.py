@@ -3,6 +3,7 @@
     用线程池并行抓取 8 源，单源失败隔离（中文原因写 last_error），
     成功写 last_ok_at/last_count，返回 {source_id: {items, error, skipped}}。
     关键依赖：concurrent.futures、httpx、app.sources.*、app.db、app.config。"""
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 
@@ -104,6 +105,32 @@ def collect_once(conn=None) -> dict:
                 sid = futures[fut]
                 items, err = fut.result()
                 results[sid] = {"items": items, "error": err, "skipped": False}
+
+        # 补采：失败源串行重试一次（网络抖动很常见，不该让整轮降级）
+        retry = [sid for sid, r in results.items()
+                 if r.get("error") and not r.get("skipped")]
+        if retry:
+            src_by_id = dict(jobs)
+            try:
+                from ..bridge import bridge as _bridge
+                _bridge.ensure()          # 桥类源重试前确保桥可用
+            except Exception:
+                pass
+            time.sleep(1.0)
+            retry_started = time.time()
+            for sid in retry:
+                if time.time() - retry_started > 45:      # 补采最多花 45 秒
+                    print("[采集] 补采时间预算用尽，剩余失败源留到下轮", flush=True)
+                    break
+                src = src_by_id.get(sid)
+                if src is None:
+                    continue
+                items, err = _run_one(src)
+                if err is None and items:
+                    results[sid] = {"items": items, "error": None,
+                                    "skipped": False, "retried": True}
+            print(f"[采集] 补采一次：重试 {len(retry)} 个失败源，"
+                  f"成功 {sum(1 for sid in retry if results[sid]['error'] is None)} 个", flush=True)
 
         _write_back(conn, results)
         conn.commit()

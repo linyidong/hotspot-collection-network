@@ -23,7 +23,7 @@ import sys
 import urllib.request
 import hashlib
 from html import unescape
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import HTTPServer, ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.request import Request, urlopen
 from urllib.parse import parse_qs, urlencode, urlparse
 from datetime import datetime, timedelta, timezone
@@ -654,7 +654,9 @@ def main():
     print(f'\nNote: Xueqiu requires Chrome with CDP enabled + a logged-in Xueqiu tab.')
     print(f'Visit http://localhost:{PORT}/ for the web index.\n')
 
-    server = HTTPServer(('0.0.0.0', PORT), RSSHandler)
+    # 多线程：5 个源并发请求时 /healthz 不会被慢上游阻塞（否则主服务会误判桥已死）
+    server = ThreadingHTTPServer(('0.0.0.0', PORT), RSSHandler)
+    server.daemon_threads = True
     server.serve_forever()
 
 

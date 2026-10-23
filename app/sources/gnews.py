@@ -24,12 +24,138 @@ QUERY_ALTS = {
 }
 
 
+# Google 不可达时短路（秒级时间戳）：避免每个源都白等 8~16 秒连接超时
+_GOOGLE_DOWN_UNTIL = 0.0
+
+
 class GoogleNewsSource(BaseSource):
     """Google News 关键词 RSS。"""
 
     def __init__(self, spec, proxy_url: str = None, timeout: float = 20.0):
         super().__init__(spec, timeout=timeout)
         self.proxy_url = proxy_url
+
+    def _fetch_360(self, headers: dict) -> list:
+        """备用源 1：360 新闻搜索（HTML）。Google 不可达时国内仍可用，返回真实链接。"""
+        import re
+        from html import unescape
+        from urllib.parse import quote
+        from datetime import timedelta
+        import time as _time
+        base = self.spec.channel or ""
+        queries = QUERY_ALTS.get(base, [base])
+        if base not in queries:
+            queries = [base] + queries
+        _timeout = httpx.Timeout(self.timeout, connect=8.0)
+        hdrs = dict(headers)
+        hdrs["Accept"] = "text/html,application/xhtml+xml"
+        last_err = None
+        with httpx.Client(timeout=_timeout, proxy=self.proxy_url,
+                          follow_redirects=True) as client:
+            for q in queries[:2]:
+                url = "https://news.so.com/ns?q=" + quote(q) + "&pn=1"
+                try:
+                    resp = client.get(url, headers=hdrs)
+                    resp.raise_for_status()
+                except Exception as exc:
+                    last_err = f"{type(exc).__name__}: {exc}"
+                    _time.sleep(1.0)
+                    continue
+                html = resp.text
+                out = []
+                for m in re.finditer(r'<li[^>]*class="[^"]*res-list[^"]*"[^>]*>(.*?)</li>',
+                                     html, re.S):
+                    block = m.group(1)
+                    href = re.search(r'<a[^>]*href="(https?://[^"]+)"', block)
+                    t = re.search(r'<h3[^>]*>(.*?)</h3>', block, re.S)
+                    if not href or not t:
+                        continue
+                    title = unescape(re.sub(r"<[^>]+>|<!--.*?-->", "", t.group(1),
+                                            flags=re.S))
+                    title = re.sub(r"\s+", " ", title).strip()
+                    if not title or len(title) < 6:
+                        continue
+                    sm = re.search(r'<p[^>]*class="[^"]*summary[^"]*"[^>]*>(.*?)</p>',
+                                   block, re.S)
+                    summary = ""
+                    if sm:
+                        summary = unescape(re.sub(r"<[^>]+>", "", sm.group(1),
+                                                  flags=re.S)).strip()
+                    published = ""
+                    tm = re.search(r'class="[^"]*time[^"]*"[^>]*>\s*([^<]{1,20})\s*<',
+                                   block)
+                    if tm:
+                        raw_t = tm.group(1).strip()
+                        now = datetime.now()
+                        hm = re.match(r"(\d+)\s*小时前", raw_t)
+                        mm = re.match(r"(\d+)\s*分钟前", raw_t)
+                        dm = re.match(r"(\d+)\s*天前", raw_t)
+                        try:
+                            if hm:
+                                published = (now - timedelta(hours=int(hm.group(1)))).strftime("%Y-%m-%d %H:%M:%S")
+                            elif mm:
+                                published = (now - timedelta(minutes=int(mm.group(1)))).strftime("%Y-%m-%d %H:%M:%S")
+                            elif dm:
+                                published = (now - timedelta(days=int(dm.group(1)))).strftime("%Y-%m-%d %H:%M:%S")
+                        except (ValueError, OverflowError):
+                            published = ""
+                    out.append(RawItem(title=title, url=href.group(1), summary=summary,
+                                       published_at=published, source_id=self.spec.id,
+                                       extra={"via": "360"}))
+                if len(out) >= 3:
+                    return out[:40]
+                _time.sleep(1.0)
+        raise ValueError(f"360 新闻无结果（{last_err or '解析不到条目'}）")
+
+    def _fetch_sogou(self, headers: dict) -> list:
+        """备用源 1：搜狗新闻搜索结果（HTML）。Google 不可达时国内仍可用。"""
+        import re
+        from html import unescape
+        from urllib.parse import quote
+        import time as _time
+        base = self.spec.channel or ""
+        queries = QUERY_ALTS.get(base, [base])
+        if base not in queries:
+            queries = [base] + queries
+        _timeout = httpx.Timeout(self.timeout, connect=5.0)
+        hdrs = dict(headers)
+        hdrs["Accept"] = "text/html,application/xhtml+xml"
+        last_err = None
+        with httpx.Client(timeout=_timeout, proxy=self.proxy_url,
+                          follow_redirects=True) as client:
+            for q in queries[:2]:
+                url = ("https://news.sogou.com/news?query=" + quote(q)
+                       + "&mode=1&sort=0&page=1")
+                try:
+                    resp = client.get(url, headers=hdrs)
+                    resp.raise_for_status()
+                except Exception as exc:
+                    last_err = f"{type(exc).__name__}: {exc}"
+                    _time.sleep(1.0)
+                    continue
+                html = resp.text
+                blocks = re.findall(
+                    r'<h3[^>]*class="vr-title"[^>]*>\s*<a[^>]*href="([^"]+)"[^>]*>(.*?)</a>',
+                    html, re.S)
+                out = []
+                for href, raw_title in blocks:
+                    title = unescape(re.sub(r"<[^>]+>|<!--.*?-->", "", raw_title,
+                                            flags=re.S)).strip()
+                    title = re.sub(r"\s+", " ", title)
+                    if not title or len(title) < 6:
+                        continue
+                    link = href
+                    if link.startswith("/"):
+                        link = "https://news.sogou.com" + link
+                    if not link.startswith("http"):
+                        continue
+                    out.append(RawItem(title=title, url=link, summary="",
+                                       published_at="", source_id=self.spec.id,
+                                       extra={"via": "sogou"}))
+                if len(out) >= 3:
+                    return out[:40]
+                _time.sleep(1.0)
+        raise ValueError(f"搜狗新闻无结果（{last_err or '解析不到条目'}）")
 
     def _fetch_bing(self, headers: dict) -> list:
         """备用源：必应新闻 RSS（同一关键词）。"""
@@ -94,13 +220,16 @@ class GoogleNewsSource(BaseSource):
             "Accept": "application/rss+xml,application/xml,text/xml,*/*",
         }
         import time as _time
+        import time as _tnow
+        global _GOOGLE_DOWN_UNTIL
+        skip_google = _tnow.time() < _GOOGLE_DOWN_UNTIL
         raw = None
-        last_err = None
+        last_err = "Google 已被判定不可达（10 分钟内直连备用源）" if skip_google else None
         # connect 单独短超时：坏网络下最多 8s/次，避免把整轮采集拖到 90s+
-        _timeout = httpx.Timeout(self.timeout, connect=8.0)
+        _timeout = httpx.Timeout(self.timeout, connect=5.0)
         with httpx.Client(timeout=_timeout, proxy=self.proxy_url,
                           follow_redirects=True) as client:
-            for attempt in range(2):
+            for attempt in range(0 if skip_google else 2):
                 try:
                     resp = client.get(self.spec.url, headers=headers)
                     if resp.status_code in (429, 500, 502, 503, 504):
@@ -110,16 +239,24 @@ class GoogleNewsSource(BaseSource):
                     resp.raise_for_status()
                     raw = resp.content
                     break
+                except (httpx.ConnectTimeout, httpx.ConnectError) as exc:
+                    last_err = f"{type(exc).__name__}: {exc}"
+                    _GOOGLE_DOWN_UNTIL = _tnow.time() + 600   # 10 分钟内不再试 Google
+                    break
                 except httpx.HTTPError as exc:
                     last_err = f"{type(exc).__name__}: {exc}"
-                    _time.sleep(1.5)
+                    _time.sleep(1.0)
         if raw is None:
-            # Google 整体 503（IP 级限流）时，自动降级到必应新闻 RSS
+            # Google 不可达/限流时，自动降级：先搜狗新闻（国内可用），再必应 RSS
             try:
-                return self._fetch_bing(headers)
-            except Exception as exc:
-                raise ValueError(
-                    f"Google News 重试 3 次仍失败（{last_err}），必应备用源也失败（{exc}）")
+                return self._fetch_360(headers)
+            except Exception as exc1:
+                try:
+                    return self._fetch_bing(headers)
+                except Exception as exc2:
+                    raise ValueError(
+                        f"Google 不可用（{last_err}），360 失败（{exc1}），"
+                        f"必应失败（{exc2}）")
 
         feed = feedparser.parse(raw)
         if getattr(feed, "bozo", 0) and not getattr(feed, "entries", None):

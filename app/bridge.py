@@ -17,7 +17,7 @@ from .config import ROOT, settings
 # 桥脚本路径与健康检查地址
 BRIDGE_SCRIPT = ROOT / "third_party" / "china-finance-rss" / "server.py"
 MAX_RESTARTS = 5          # 进程内累计最多自动重启 5 次
-PROBE_TIMEOUT = 3.0       # 单次健康探测超时（秒）
+PROBE_TIMEOUT = 8.0       # 单次健康探测超时（秒）：留足慢上游（10s 读超时）的余量
 START_WAIT = 0.4          # 启动后每次探测间隔（秒）
 START_TRIES = 15          # 最多探测次数（约 6 秒内确认起来）
 
@@ -30,6 +30,7 @@ class RssBridge:
         self.script = Path(script) if script else BRIDGE_SCRIPT
         self.proc = None
         self.restarts = 0
+        self._fail_streak = 0        # 连续探测失败次数（避免偶发慢就杀进程）
 
     # ---------- 探测 ----------
     def is_alive(self) -> bool:
@@ -199,7 +200,14 @@ class RssBridge:
     def ensure(self) -> bool:
         """看护：桥不在则自动重启，进程内累计最多 MAX_RESTARTS 次。"""
         if self.is_alive():
+            self._fail_streak = 0
             return True
+        # 单次探测失败可能只是桥正在抓慢上游（读超时 10s），先观察一次再动手，避免误杀
+        self._fail_streak += 1
+        if self._fail_streak < 2:
+            print("[bridge] 探测失败 1 次，暂不重启（可能是慢请求）", flush=True)
+            return False
+        self._fail_streak = 0
         # 进程还在但探测失败（僵死/被挂起）→ 强制干掉再重启
         if self.proc and self.proc.poll() is None:
             print("[bridge] 桥进程存在但不响应，强制重启", flush=True)

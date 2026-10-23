@@ -84,7 +84,7 @@
 | Node / npm / 任何前端构建 | 用户不会维护，坏了难修 |
 | Redis / 消息队列 | 单进程够用 |
 | 向量数据库 / RAG | v1 不需要，且成本不可控 |
-| ORM（SQLAlchemy） | 8 张表，写 SQL 更透明，少一层抽象 |
+| ORM（SQLAlchemy） | 当前 9 张表（含 heartbeats 心跳），写 SQL 更透明，少一层抽象 |
 | 任何 GPL 代码 | 避免许可证传染（见 `reuse-decision.md`） |
 
 ---
