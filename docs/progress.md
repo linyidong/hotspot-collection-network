@@ -139,3 +139,6 @@
 | 2026-10-22 18:41 | Mac 停止器升级（`停止.command`）：先按 pid 文件停，再按端口 9000/8053 兜底；`.env` 读取去 CRLF。注意：本机无可用 bash（WSL 无发行版），Mac 脚本**未做本地语法校验，也未经实机验证** |
 | 2026-10-23 11:20 | Mac 首次实跑故障定位与修复：①`启动.command` 增加系统 Python≥3.11 校验、venv 不可用自动重建、依赖自检、打印解释器、等待上限 90s；②`/api/health` 的桥自愈改后台线程（此前同步拉起桥导致单次 2.2s+、启动误判超时）；③`app/bridge.py` 新增 `_drain` 线程消费子进程输出，避免 PIPE 写满导致桥僵死；④`run.py` app.log 超 5MB 轮转。Windows 回归：启动 4.1s、health 135ms、桥 ok |
 | 2026-10-23 11:21 | 说明：Mac 截图中出现的 `D:\...\data\app.db` 与桥重启记录来自**从 Windows 拷过来的旧 `data/logs/app.log`**；真实报错是 venv 里 python < 3.11。已在 README/审计文档写清迁移时不要拷 `.venv`、`data/logs` |
+| 2026-10-23 11:40 | RSS 桥端口改为自动分配：优先 RSS_BRIDGE_PORT(8053)，被占用则 +1 到 +20，全满由系统随机；collect 用运行时 bridge.port；启动写 data/logs/bridge.pid。实测：8053 被占时自动用 8054（桥源 200/50 条），8053 空闲时回到 8053 |
+| 2026-10-23 11:41 | 停止脚本适配动态端口并修掉一个危险写法：不再用命令行匹配 china-finance-rss（会把执行脚本的 shell 一起杀掉），改为 pid 文件 + 端口扫描 8053-8075；Mac 停止.command 同样按 bridge.pid/app.pid + 端口。实测停止后 9000/8053/8054 全部释放 |
+| 2026-10-23 11:42 | Windows 端口探测修正：SO_REUSEADDR 在 Windows 上允许抢占已监听端口导致误判空闲，改用 SO_EXCLUSIVEADDRUSE 独占探测 |
