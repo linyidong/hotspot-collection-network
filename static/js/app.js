@@ -1071,6 +1071,8 @@
       panel.classList.add("removed");
       HID[pc.id] = 1;
       save();
+      // 隐藏生效后再尝试收起第三列（若第三列已无可见面板）
+      setTimeout(function () { collapseCol3IfEmpty(); }, 0);
     };
     function updateHint() {
       var keys = Object.keys(HID).filter(function (k) { return HID[k]; });
@@ -1124,6 +1126,28 @@
     });
     // 加载后自愈：第三列若只剩隐藏面板，自动收回两列
     setTimeout(function () { collapseCol3IfEmpty(); syncCol3Btn(); }, 60);
+    // 兜底：任何把第三列变空的操作（× 移除、拖走、程序化 removed 类等）都自动收起
+    var col3G = $("grid");
+    if (col3G && typeof MutationObserver !== "undefined" && !window.__col3Observer) {
+      var moCfg = { childList: true, subtree: true, attributes: true, attributeFilter: ["class"] };
+      var col3Timer = null;
+      function checkCol3Empty() {
+        var c3 = col3G.querySelector(".col3");
+        if (!c3) return;
+        var visCount = Array.prototype.filter.call(c3.children, function (p) {
+          return !p.classList.contains("removed");
+        }).length;
+        if (visCount) return;                       // 还有可见面板 → 不收
+        mo.disconnect();                             // 收起会改 DOM，先断开避免自循环
+        try { collapseCol3IfEmpty(); } finally { mo.observe(col3G, moCfg); }
+      }
+      var mo = new MutationObserver(function () {
+        clearTimeout(col3Timer);
+        col3Timer = setTimeout(checkCol3Empty, 50);  // 50ms 防抖
+      });
+      mo.observe(col3G, moCfg);
+      window.__col3Observer = mo;
+    }
     updateHint();
   })();
   // 夜间模式切换（状态在 earth.js，这里只做按钮与文案）

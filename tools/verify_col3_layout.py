@@ -198,6 +198,41 @@ def run_at(width, height, tag, results):
         gap = abs(back["colHeights"]["L"] - back["colHeights"]["R"])
         results.append((f"{tag}: 两列高度平衡", "PASS" if gap <= 20 else "FAIL",
                         f"L={back['colHeights']['L']} R={back['colHeights']['R']} 差 {gap}px"))
+        # ---- 3) 再开一次三列，然后用「×」移除第三列最后一块，必须自动收起 ----
+        ev("""(() => {
+          if (!document.querySelector('.col3')) {
+            var src = document.querySelector('.colR .panel');
+            var dz = document.getElementById('drop3');
+            var dt = new DataTransfer();
+            (src.querySelector('.pt')||src).dispatchEvent(new MouseEvent('mousedown',{bubbles:true,cancelable:true}));
+            src.dispatchEvent(new DragEvent('dragstart',{bubbles:true,dataTransfer:dt}));
+            dz.dispatchEvent(new DragEvent('dragover',{bubbles:true,dataTransfer:dt}));
+            dz.dispatchEvent(new DragEvent('drop',{bubbles:true,dataTransfer:dt}));
+            src.dispatchEvent(new DragEvent('dragend',{bubbles:true,dataTransfer:dt}));
+          }
+          return 1;
+        })()""")
+        time.sleep(1.0)
+        opened = ev(MEASURE)
+        removed = ev("""(() => {
+          var p = document.querySelector('.col3 .panel:not(.removed)');
+          if (!p) return 'no-panel';
+          var b = p.querySelector('.xrm');
+          if (!b) return 'no-x';
+          b.click();
+          return 'clicked';
+        })()""")
+        time.sleep(1.2)
+        after_x = ev(MEASURE)
+        if isinstance(opened, str) or isinstance(after_x, str):
+            results.append((f"{tag}: × 移除后测量", "FAIL", "测量异常"))
+        else:
+            results.append((f"{tag}: × 移除最后一块自动收起", "PASS" if (not after_x["three"] and not after_x["col3"]) else "FAIL",
+                            f"点击={removed} three={after_x['three']} col3={after_x['col3']}"))
+            # 被 × 掉的面板应可在「已移除的面板」里恢复（搬到左列且保持 removed）
+            results.append((f"{tag}: 被移除面板可在左列恢复", "PASS" if after_x["visiblePanels"] + after_x["removedPanels"] == after_x["totalPanels"] else "FAIL",
+                            f"可见 {after_x['visiblePanels']} + removed {after_x['removedPanels']} = {after_x['totalPanels']}"))
+
         # 权重应回到默认（每块 ≤1.2）
         results.append((f"{tag}: 面板权重已复原", "PASS" if back["sumWeightL"] <= 8.5 and back["sumWeightR"] <= 8.5 else "FAIL",
                         f"L权重和={back['sumWeightL']:.1f} R权重和={back['sumWeightR']:.1f}"))
