@@ -803,10 +803,43 @@
       cen.style.width = "";
     }
   }
+  // 响应式三列断点：≥1800px 宽屏走真实 flex 布局（CSS 媒体查询已取消 absolute），<1800px 保持覆盖
+  var WIDE = 1800;
+  function isWide() { return (window.innerWidth || document.documentElement.clientWidth) >= WIDE; }
+  var _applyingThree = false;
+  function applyThreeLayout() {
+    var g = $("grid"); if (!g) return;
+    var three = g.classList.contains("three");
+    if (three && !isWide()) {
+      lockCen(true);                 // 窄屏三列：写死 #cen 宽度，画板 absolute 覆盖
+    } else {
+      lockCen(false);                // 宽屏三列 / 任意两列：#cen flex:1 自适应
+      var cen = $("cen");
+      if (cen) { cen.style.width = ""; cen.style.marginLeft = ""; cen.style.flex = ""; }
+    }
+    if (!_applyingThree) {           // 派发 resize 让地球按新容器尺寸重算（防重入）
+      _applyingThree = true;
+      try { window.dispatchEvent(new Event("resize")); } catch (e) {}
+      _applyingThree = false;
+    }
+  }
   window.addEventListener("resize", function () {
     var g = $("grid");
-    if (g && g.classList.contains("three")) lockCen(true);
+    if (g && g.classList.contains("three") && !isWide()) lockCen(true);  // 仅窄屏三列需重算锁宽
   });
+  // 跨断点自动切换：只在宽/窄状态变化时执行，避免每帧重排
+  var lastWide = isWide();
+  if (window.ResizeObserver) {
+    new ResizeObserver(function () {
+      var w = isWide();
+      if (w !== lastWide) { lastWide = w; applyThreeLayout(); }
+    }).observe(document.documentElement);
+  } else {
+    window.addEventListener("resize", function () {
+      var w = isWide();
+      if (w !== lastWide) { lastWide = w; applyThreeLayout(); }
+    });
+  }
 
   // 开启 / 收起第三列（force=true 时无条件收起）
   function ensureCol3(on, force) {
@@ -817,7 +850,7 @@
       c3.className = "col3";
       g.appendChild(c3);
       g.classList.add("three");
-      lockCen(true);            // 地球保持原尺寸
+      applyThreeLayout();         // 宽屏真实占位 / 窄屏覆盖锁宽
       syncCol3Btn();
       return c3;
     }
@@ -833,9 +866,7 @@
         });
         g.removeChild(c3);
         g.classList.remove("three");
-        lockCen(false);           // 恢复自适应
-        var cen = $("cen");       // 清掉地球区的内联宽度/左边距
-        if (cen) { cen.style.width = ""; cen.style.marginLeft = ""; cen.style.flex = ""; }
+        applyThreeLayout();       // 复原两列：清 #cen 内联宽度/左边距 + 重算地球
         saveSize();
         colMapSave();
         syncCol3Btn();
@@ -1112,6 +1143,7 @@
     };
   }
   setTimeout(syncCol3Btn, 300);
+  applyThreeLayout();   // 初始化：按当前断点确定三列布局模式
 
   var resetBtn = $("resetLayout");
   if (resetBtn) {

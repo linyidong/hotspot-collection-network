@@ -147,6 +147,11 @@ main{flex:1;min-height:0;display:flex;gap:10px;padding:10px;position:relative}
 #grid.three{position:absolute;right:10px;top:10px;bottom:10px;width:clamp(760px,66vw,1500px);
   z-index:20;background:rgba(6,10,18,.92);border-radius:10px;padding:0}
 #grid.three .panel{background:#0a1220}
+/* 宽屏（≥1800px）三列：取消绝对定位，#grid 作为普通 flex 子项占真实宽度，#cen 自适应变窄左移 */
+@media (min-width:1800px){
+  #grid.three{position:static;right:auto;top:auto;bottom:auto;width:clamp(760px,46vw,1320px);
+    z-index:auto;background:transparent;border-radius:0}
+}
 .panel.removed{display:none}
 .panel{position:relative;min-width:0;background:rgba(255,255,255,.035);transition:border-color .15s,box-shadow .15s;border:1px solid rgba(120,180,255,.14);border-radius:8px;padding:7px;display:flex;flex-direction:column;min-height:0}
 .pt{flex:none;display:flex;align-items:center;justify-content:space-between;font-size:12px;color:#9fb4d8;margin-bottom:6px}
