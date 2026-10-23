@@ -87,6 +87,58 @@ data/app.db         # 数据库（首次启动自动生成，不进 git）
 
 > 注意：`.cmd` 文件是 **GBK 编码**，用编辑器修改时请保持 GBK（或另存为 ANSI），否则中文会乱码、命令可能被截断。
 
+## 界面预览
+
+> 以下为实机截图（1920×1080 / 2560×1440），已压缩为 WebP；重新生成：`python tools/make_preview_shots.py`
+
+### 大屏（两列 · 白天）
+
+![大屏两列](docs/images/dash-2col.webp)
+
+### 大屏（三列 · 宽屏不遮挡地球）
+
+![三列宽屏](docs/images/dash-3col-wide.webp)
+
+### 大屏（2560×1440 · 三列）
+
+![三列2560](docs/images/dash-3col-2560.webp)
+
+### 夜间模式（黑色镂空地球 + 城市灯光）
+
+![夜间模式](docs/images/dash-night.webp)
+
+### 地球特写（光点 / 贝塞尔飞线 / 扫描弧）
+
+![地球特写](docs/images/globe-focus.webp)
+
+### 平台信号面板（微博 / 抖音 / 百度热搜 + Amazon 榜单）
+
+![平台信号](docs/images/panel-platform.webp)
+
+### 采集来源（信号强度图标 · 直连/代理）
+
+![采集来源](docs/images/sources-signal.webp)
+
+### 抽屉折叠（地球尺寸不变）
+
+![抽屉折叠](docs/images/drawer-collapsed.webp)
+
+### 设置页（模型 / 预算 / 源体检 / 网络与采集模式）
+
+![设置页](docs/images/settings.webp)
+
+### 成本与预算
+
+![成本页](docs/images/cost.webp)
+
+### 备忘录 / 收藏
+
+![备忘录](docs/images/notes.webp)
+
+### 条目详情（线索卡 / 校验 / 花费）
+
+![详情页](docs/images/detail.webp)
+
 ## 数据源一览（v1.2，共 20 个）
 
 | 类型 | 源 | 说明 |

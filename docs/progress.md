@@ -157,3 +157,4 @@
 | 2026-10-23 21:40 | **代码已备份到 GitHub**：`git@github.com:linyidong/hotspot-collection-network.git`，master 与本地一致（HEAD `5158df5`）。过程：GitHub HTTPS 被网络阻断 → 改 SSH over 443（`ssh.github.com:443`，写入 ~/.ssh/config）；首次推送 44.5MB 在 26–28% 被重置 → 清理历史中的 `static/shots`（35MB 开发截图，改 .gitignore 本地保留）→ 仓库 10.0MB 后一次推送成功。远程 123 个文件，已校验**不含 .env / app.db / 截图 / 备份** |
 | 2026-10-23 21:41 | 历史重写说明：filter-branch 移除了 `static/shots` 的历史对象，**提交哈希已变化**（HEAD 84b8381 → 5158df5）；重写前的完整历史保存在 `data/backups/repo-20261023.bundle`（44.5MB），需要旧历史可用 `git clone` 恢复。截图文件仍在本机 `static/shots`（103 个），不进仓库 |
 | 2026-10-23 21:42 | 今日工作日志已归档：`docs/工作日志-2026-10-23.md`（12 个问题：现象/根因/修复/验证 + Windows/Mac 操作步骤 + 验收数字） |
+| 2026-10-23 22:05 | README 增加「界面预览」：新增 `tools/make_preview_shots.py`（headless 截图 → Pillow 压成 WebP，宽 ≤1600）+ `docs/images/` 12 张关键图（大屏两列/三列宽屏/2560、夜间模式、地球特写、平台信号、采集来源信号、抽屉折叠、设置、成本、备忘录、详情），合计 **0.97MB**（原截图 34.7MB 仍只留本地）。演示时可完整展示界面 |
