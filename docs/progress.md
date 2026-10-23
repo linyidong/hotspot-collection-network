@@ -154,3 +154,6 @@
 | 2026-10-23 15:48 | Amazon 反爬后的榜单数据已从批次 #61 恢复（3 榜单/60 条，标记 stale）；刷新失败改为保留旧快照，不再清空 |
 | 2026-10-23 17:58 | 修「第三列空了不自动收起（Mac 复现）」：根因是「×」移除路径只加 removed+save，从不调用 collapseCol3IfEmpty（只有拉伸挤没/拖走/按钮才收）。修法：`__panelHide()` 延迟调用 collapse；`#grid` 上挂 **MutationObserver**（守护 .col3 子节点与 class、50ms 防抖、收起前 disconnect 防自循环）覆盖所有把第三列变空的路径；三个 script 加 `?v=20261023` 规避浏览器缓存旧 JS |
 | 2026-10-23 17:59 | 验收：`tools/verify_col3_layout.py` 新增「× 移除最后一块自动收起」用例（1920/1440 各一条）→ **25 PASS / 0 FAIL**；`tools/verify_viewports.py` **24 PASS / 0 FAIL**（1440/1920/2560/3440）。Mac 用户需强刷或让版本串生效后重新加载 |
+| 2026-10-23 21:40 | **代码已备份到 GitHub**：`git@github.com:linyidong/hotspot-collection-network.git`，master 与本地一致（HEAD `5158df5`）。过程：GitHub HTTPS 被网络阻断 → 改 SSH over 443（`ssh.github.com:443`，写入 ~/.ssh/config）；首次推送 44.5MB 在 26–28% 被重置 → 清理历史中的 `static/shots`（35MB 开发截图，改 .gitignore 本地保留）→ 仓库 10.0MB 后一次推送成功。远程 123 个文件，已校验**不含 .env / app.db / 截图 / 备份** |
+| 2026-10-23 21:41 | 历史重写说明：filter-branch 移除了 `static/shots` 的历史对象，**提交哈希已变化**（HEAD 84b8381 → 5158df5）；重写前的完整历史保存在 `data/backups/repo-20261023.bundle`（44.5MB），需要旧历史可用 `git clone` 恢复。截图文件仍在本机 `static/shots`（103 个），不进仓库 |
+| 2026-10-23 21:42 | 今日工作日志已归档：`docs/工作日志-2026-10-23.md`（12 个问题：现象/根因/修复/验证 + Windows/Mac 操作步骤 + 验收数字） |
