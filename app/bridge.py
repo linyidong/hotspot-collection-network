@@ -5,6 +5,7 @@
     关键依赖：stdlib subprocess/urllib、app.config。"""
 import os
 import subprocess
+import threading
 import sys
 import time
 import urllib.request
@@ -118,8 +119,10 @@ class RssBridge:
             self.proc = subprocess.Popen(
                 [sys.executable, str(self.script)],
                 env=env, stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT, text=True, encoding="utf-8",
+                stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace",
             )
+            self._tail_lines = []
+            threading.Thread(target=self._drain, args=(self.proc,), daemon=True).start()
         except OSError as e:
             print(f"[bridge] 错误：桥进程启动失败（{e}）")
             return False
@@ -136,6 +139,16 @@ class RssBridge:
         tail = self._tail()
         print(f"[bridge] 错误：桥 {self.port} 启动超时，未通过健康检查。输出：{tail}")
         return False
+
+    def _drain(self, proc):
+        """持续读取子进程输出（只保留最后 40 行）；不读会导致 PIPE 写满、桥卡死。"""
+        try:
+            for line in iter(proc.stdout.readline, ""):
+                self._tail_lines.append(line.rstrip())
+                if len(self._tail_lines) > 40:
+                    del self._tail_lines[:-40]
+        except (OSError, ValueError):
+            pass
 
     def ensure(self) -> bool:
         """看护：桥不在则自动重启，进程内累计最多 MAX_RESTARTS 次。"""

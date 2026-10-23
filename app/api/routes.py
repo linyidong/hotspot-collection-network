@@ -74,7 +74,19 @@ def create_app() -> FastAPI:
     def health():
         ok, names = db.db_ok()
         uptime = round(time.time() - _START, 1)
-        bridge.ensure()
+        # 桥的自愈放后台线程：健康检查保持毫秒级，避免启动脚本误判「启动超时」
+        if not globals().get("_bridge_checking"):
+            globals()["_bridge_checking"] = True
+
+            def _kick_bridge():
+                try:
+                    bridge.ensure()
+                except Exception:
+                    pass
+                finally:
+                    globals()["_bridge_checking"] = False
+
+            threading.Thread(target=_kick_bridge, daemon=True).start()
         return {
             "status": "ok",
             "version": settings.VERSION,

@@ -137,3 +137,5 @@
 | 2026-10-22 18:25 | 新增**平台信号面板**：`GET /api/platform_items`（最近一批里的微博/抖音/百度热搜 + Amazon 榜单，按来源分组、每源最多 12 条、热搜在前、**本轮新增优先**、过滤 `Click for details` 等垃圾条目）；前端 `#pPlat` 按来源分组渲染，显示「第 N 位 · 热度」并可点进详情。实测 72 条、6 个来源分组 |
 | 2026-10-22 18:40 | 启动器升级：**启动后可选页面**——Windows `启动.vbs` 用 InputBox（1 大屏/2 设置/3 成本/4 备忘录/5 只启动/0 取消，回车默认 1），支持 `HCN_PAGE` 环境变量跳过弹窗；Mac `启动.command` 同菜单 + `nohup` 后台启动 + 写 `data/logs/app.pid` + 健康检查后 `open` 对应页面 |
 | 2026-10-22 18:41 | Mac 停止器升级（`停止.command`）：先按 pid 文件停，再按端口 9000/8053 兜底；`.env` 读取去 CRLF。注意：本机无可用 bash（WSL 无发行版），Mac 脚本**未做本地语法校验，也未经实机验证** |
+| 2026-10-23 11:20 | Mac 首次实跑故障定位与修复：①`启动.command` 增加系统 Python≥3.11 校验、venv 不可用自动重建、依赖自检、打印解释器、等待上限 90s；②`/api/health` 的桥自愈改后台线程（此前同步拉起桥导致单次 2.2s+、启动误判超时）；③`app/bridge.py` 新增 `_drain` 线程消费子进程输出，避免 PIPE 写满导致桥僵死；④`run.py` app.log 超 5MB 轮转。Windows 回归：启动 4.1s、health 135ms、桥 ok |
+| 2026-10-23 11:21 | 说明：Mac 截图中出现的 `D:\...\data\app.db` 与桥重启记录来自**从 Windows 拷过来的旧 `data/logs/app.log`**；真实报错是 venv 里 python < 3.11。已在 README/审计文档写清迁移时不要拷 `.venv`、`data/logs` |

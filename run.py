@@ -17,7 +17,17 @@ def _setup_file_logging():
         from pathlib import Path
         log_dir = Path(__file__).resolve().parent / "data" / "logs"
         log_dir.mkdir(parents=True, exist_ok=True)
-        f = open(log_dir / "app.log", "a", encoding="utf-8", buffering=1)
+        log_file = log_dir / "app.log"
+        # 超过 5MB 轮转一次，避免日志无限增长
+        try:
+            if log_file.exists() and log_file.stat().st_size > 5 * 1024 * 1024:
+                old = log_dir / "app.log.1"
+                if old.exists():
+                    old.unlink()
+                log_file.replace(old)
+        except OSError:
+            pass
+        f = open(log_file, "a", encoding="utf-8", buffering=1)
         sys.stdout = f
         sys.stderr = f
     except Exception:

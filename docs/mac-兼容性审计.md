@@ -72,3 +72,34 @@ python run.py --run-once --deep-limit 2
 - **可以运行**：依赖、路径、脚本、桥、Chrome 抓取都已适配
 - **没有实机证据**：Mac 上的 6 步验证尚未执行（本次只在 Windows 上做了等价回归）
 - 建议：第一次在 Mac 上跑完上面 6 步后，把结果补进 `docs/acceptance-report.md` 的 N-5 行
+
+## 六、首次 Mac 实跑反馈（2026-10-23）与修复
+
+用户在 Mac（`/Volumes/Programming/Project-File/Hotspot Collection Network`）首次运行 `启动.command`，
+出现「服务启动超时 + 日志里反复 `错误：需要 Python 3.11 或更高版本` + 桥反复重启」。
+
+### 根因（4 条）
+
+| # | 根因 | 证据 |
+|---|---|---|
+| 1 | **venv 里的 python 低于 3.11**（`.venv` 不可用/沿用旧环境），`python run.py` 直接退出 | 日志最后几行就是 run.py 的版本检查报错 |
+| 2 | 日志是被**从 Windows 拷过来的旧 `data/logs/app.log`**，里面混着 Windows 路径 `D:\...` 和历史桥重启记录，容易被误读成"Mac 在写 Windows 路径" | 头部 `数据库: D:\Deepseek Harness\...` |
+| 3 | `/api/health` 里**同步调用 `bridge.ensure()`**，桥拉起要 15–30 秒，启动脚本 30 秒超时 → 误判"启动超时" | 之后在 Windows 复现：health 单次 2.2 秒以上、启动要 300 秒 |
+| 4 | 桥子进程 stdout 用 `PIPE` 但**没有持续读取**，输出写满缓冲区后桥会卡住（表现为"进程存在但不响应"反复重启） | 桥重启日志 `桥进程存在但不响应` |
+
+### 已修
+
+- `启动.command`：先校验系统 `python3 >= 3.11`；`.venv` 不可用或版本不符 **自动重建**；依赖导入自检；打印实际解释器路径；健康等待上限 30s → **90s**
+- `/api/health`：桥自愈改为**后台线程**，健康检查恢复毫秒级（实测 135ms，之前 2.2s+）
+- `app/bridge.py`：新增 `_drain` 线程持续读取子进程输出（保留最后 40 行），避免 PIPE 写满阻塞
+- `run.py`：`data/logs/app.log` 超过 5MB 自动轮转为 `app.log.1`
+- 迁移说明：**不要把 `.venv`、`data/logs` 从 Windows 拷到 Mac**（见 README）
+
+### 现在在 Mac 上应该怎么做
+
+```bash
+cd "/Volumes/Programming/Project-File/Hotspot Collection Network"
+rm -rf .venv data/logs          # 清掉跨系统带过来的环境与日志
+chmod +x 启动.command 停止.command
+./启动.command                   # 选 1 大屏；首次会重建 venv 并装依赖（1–3 分钟）
+```

@@ -62,14 +62,33 @@ if [ -z "$PY" ]; then
 fi
 echo "Python: $("$PY" --version 2>&1)"
 
-if [ ! -d .venv ]; then
+# 关键：系统 python3 必须 >= 3.11（低于此版本 run.py 会直接退出）
+if ! "$PY" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)' 2>/dev/null; then
+  echo "错误：python3 版本过低（$("$PY" --version 2>&1)），需要 3.11+。"
+  echo "怎么办：brew install python@3.12  然后重新运行本脚本。"
+  read -r -p "按回车退出…" _
+  exit 1
+fi
+
+# venv 可能来自别的机器/别的 Python（例如从 Windows 拷过来），不可用时自动重建
+need_venv=1
+if [ -x .venv/bin/python ]; then
+  if .venv/bin/python -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)' 2>/dev/null; then
+    need_venv=0
+  else
+    echo "检测到 .venv 不可用（可能是从别的系统拷来的），自动重建…"
+    rm -rf .venv
+  fi
+fi
+if [ "$need_venv" = "1" ]; then
   echo "创建虚拟环境 .venv …"
   "$PY" -m venv .venv
 fi
 # shellcheck disable=SC1091
 source .venv/bin/activate
+echo "使用解释器：$(command -v python)（$(python --version 2>&1)）"
 
-if [ ! -f .venv/.deps_ok ]; then
+if [ ! -f .venv/.deps_ok ] || ! python -c 'import fastapi, uvicorn, httpx, feedparser, apscheduler, openai, dotenv' 2>/dev/null; then
   echo "安装依赖（首次约 1–3 分钟，用清华镜像）…"
   python -m pip install -q --upgrade pip -i https://pypi.tuna.tsinghua.edu.cn/simple
   python -m pip install -q -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
@@ -84,7 +103,7 @@ echo $! > data/logs/app.pid
 
 # ---------- 6. 等健康检查通过 ----------
 READY=0
-for _ in $(seq 1 60); do
+for _ in $(seq 1 180); do   # 最长等 90 秒（首次启动 + 桥拉起）
   sleep 0.5
   if curl -fsS -m 2 "${BASE}/api/health" >/dev/null 2>&1; then
     READY=1

@@ -113,6 +113,9 @@ brew install python@3.12
 brew install --cask google-chrome
 ```
 
+**从 Windows 迁到 Mac 时注意**：只拷代码 + `data/app.db` + `.env`，**不要拷 `.venv` 和 `data/logs`**
+（`.venv` 是平台相关的，拷过去会不可用；旧日志会混进新环境造成误读）。首次运行会自动重建环境。
+
 把项目放到任意目录后，给脚本执行权限（只需一次）：
 
 ```bash
