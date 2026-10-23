@@ -74,6 +74,10 @@ data/app.db         # 数据库（首次启动自动生成，不进 git）
 
 ## 版本标记
 
+> 本分支 `release/full` 是**完整项目版**：全功能，不含技术栈展示页。
+> 含技术栈展示页的版本见 `release/techstack` 分支 / 标签 `v0.1.2-techstack`。
+
+
 | 标签 | 内容 | 适用 |
 |---|---|---|
 | `v0.1.0-techstack` | **含技术栈交互页**（当前版本） | 演示 / 讲技术方案 |
@@ -103,14 +107,6 @@ git checkout v0.1.0-base        # 旧版
 ## 界面预览
 
 > 以下为实机截图（1920×1080 / 2560×1440），已压缩为 WebP；重新生成：`python tools/make_preview_shots.py`
-
-### 技术栈总览（顶部导航「技术栈」，可点击/筛选/跑管线）
-
-![技术栈页](docs/images/stack-interactive.webp)
-
-交互态：点开「处理层」+ 管线跑完 6 段（绿色为完成）：
-
-![技术栈交互态](docs/images/stack-interactive-open.webp)
 
 ### 大屏（两列 · 白天）
 
