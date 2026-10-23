@@ -72,6 +72,19 @@ static/index.html   # 深色占位页
 data/app.db         # 数据库（首次启动自动生成，不进 git）
 ```
 
+## 版本标记
+
+| 标签 | 内容 | 适用 |
+|---|---|---|
+| `v0.1.0-techstack` | **含技术栈交互页**（当前版本） | 演示 / 讲技术方案 |
+| `v0.1.0-base` | 之前的完整项目版（无技术栈页） | 只想用采集与大屏 |
+
+```bash
+git checkout v0.1.0-techstack   # 演示版
+git checkout v0.1.0-base        # 旧版
+```
+详见 [docs/版本说明-含技术栈.md](docs/版本说明-含技术栈.md)。分支 `release/techstack` 固定指向演示版。
+
 ## 代码备份
 
 - GitHub：`git@github.com:linyidong/hotspot-collection-network.git`
