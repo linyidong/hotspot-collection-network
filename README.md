@@ -72,6 +72,12 @@ static/index.html   # 深色占位页
 data/app.db         # 数据库（首次启动自动生成，不进 git）
 ```
 
+## 代码备份
+
+- GitHub：`git@github.com:linyidong/hotspot-collection-network.git`
+- 仓库**不含** `.env`、数据库、`data/`、`static/shots`（截图 35MB 本地保留）
+- 本机 SSH 已配置为 `ssh.github.com:443`（HTTPS 在当前网络不可用）；推送命令：`git push origin master`
+
 ## 一键启动（Windows）
 
 - 双击项目根目录的 **`启动.cmd`**：自动检查端口、启动服务、等健康检查通过后**自动打开浏览器**（http://127.0.0.1:9000/）
