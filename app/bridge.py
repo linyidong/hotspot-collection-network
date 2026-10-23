@@ -4,6 +4,7 @@
     健康探测走 /healthz；桥挂了自动重启，进程内累计最多 2 次。
     关键依赖：stdlib subprocess/urllib、app.config。"""
 import os
+import socket
 import subprocess
 import threading
 import sys
@@ -101,6 +102,36 @@ class RssBridge:
         except (OSError, subprocess.SubprocessError):
             return False
 
+    def _port_free(self, port: int) -> bool:
+        """本机 127.0.0.1 上是否可以绑定该端口。"""
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            # Windows 上 SO_REUSEADDR 允许"抢绑"正在监听的端口，会误判为空闲；
+            # 用 SO_EXCLUSIVEADDRUSE 才是真正的独占探测（POSIX 用 SO_REUSEADDR 避开 TIME_WAIT）
+            if os.name == "nt" and hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+            else:
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            sock.bind(("127.0.0.1", port))
+            return True
+        except OSError:
+            return False
+        finally:
+            sock.close()
+
+    def _pick_port(self) -> int:
+        """优先用配置端口；被占用则向后找空位（最多 +20），都满就让系统分配。"""
+        preferred = settings.rss_bridge_port
+        for port in range(preferred, preferred + 21):
+            if self._port_free(port):
+                return port
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            sock.bind(("127.0.0.1", 0))
+            return sock.getsockname()[1]
+        finally:
+            sock.close()
+
     def start(self) -> bool:
         """拉起桥进程并等待健康。失败给出中文原因并返回 False。"""
         if self.is_alive():
@@ -108,6 +139,15 @@ class RssBridge:
         if self.proc is not None and self.proc.poll() is None:
             print(f"[bridge] 端口 {self.port} 已有进程响应，直接复用。")
             return True
+        # 选端口：首选端口已有健康桥则复用；否则挑一个空闲端口（不写死 8053）
+        preferred = settings.rss_bridge_port
+        self.port = preferred
+        if self.is_alive():
+            return True
+        self.port = self._pick_port()
+        if self.port != preferred:
+            print(f"[bridge] 端口 {preferred} 被占用，改用 {self.port}", flush=True)
+
         if not self.script.exists():
             print(f"[bridge] 错误：找不到桥脚本 {self.script}")
             print(f"[bridge] 怎么办：确认 third_party/china-finance-rss/server.py 存在。")
@@ -121,6 +161,12 @@ class RssBridge:
                 env=env, stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace",
             )
+            try:                          # 写 pid 文件，供停止脚本精确结束（端口是自动分配的）
+                pid_file = Path(__file__).resolve().parent.parent / "data" / "logs" / "bridge.pid"
+                pid_file.parent.mkdir(parents=True, exist_ok=True)
+                pid_file.write_text(str(self.proc.pid), encoding="utf-8")
+            except OSError:
+                pass
             self._tail_lines = []
             threading.Thread(target=self._drain, args=(self.proc,), daemon=True).start()
         except OSError as e:
@@ -173,6 +219,14 @@ class RssBridge:
         return self.start()
 
     # ---------- 停止 ----------
+    def _clear_pid_file(self):
+        try:
+            pid_file = Path(__file__).resolve().parent.parent / "data" / "logs" / "bridge.pid"
+            if pid_file.exists():
+                pid_file.unlink()
+        except OSError:
+            pass
+
     def stop(self, quiet: bool = False):
         """停止桥子进程（Windows 直接 terminate，随后 wait 回收）。"""
         if self.proc is None:

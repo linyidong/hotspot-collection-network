@@ -1,13 +1,28 @@
 @echo off
 cd /d "%~dp0"
-set "PORT=9000"
-set "BRIDGE=8053"
-echo Stopping Hotspot Collection Network (port %PORT% / bridge %BRIDGE%) ...
-for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":%PORT%" ^| findstr "LISTENING"') do (
-  taskkill /F /PID %%a >nul 2>&1
+setlocal enabledelayedexpansion
+echo Stopping Hotspot Collection Network ...
+
+rem 1) 按 pid 文件精确结束桥（端口是自动分配的）
+if exist "data\logs\bridge.pid" (
+  set /p BPID=<"data\logs\bridge.pid"
+  if not "!BPID!"=="" taskkill /PID !BPID! /F >nul 2>&1
+  del /q "data\logs\bridge.pid" >nul 2>&1
 )
-for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":%BRIDGE%" ^| findstr "LISTENING"') do (
-  taskkill /F /PID %%a >nul 2>&1
+
+rem 2) 主服务端口 9000
+for /f "tokens=5" %%A in ('netstat -ano ^| findstr ":9000 " ^| findstr "LISTENING"') do (
+  taskkill /PID %%A /F >nul 2>&1
 )
+
+rem 3) 桥端口兜底：扫 8053-8075
+for /l %%Q in (8053,1,8075) do (
+  for /f "tokens=5" %%A in ('netstat -ano ^| findstr ":%%Q " ^| findstr "LISTENING"') do (
+    taskkill /PID %%A /F >nul 2>&1
+  )
+)
+
+if exist "data\logs\app.pid" del /q "data\logs\app.pid" >nul 2>&1
 echo Done.
-ping -n 2 127.0.0.1 >nul
+endlocal
+exit /b 0

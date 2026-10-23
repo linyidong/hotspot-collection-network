@@ -35,5 +35,17 @@ for p in "$PORT" "$BRIDGE_PORT"; do
   fi
 done
 
+# 3) 兜底：pid 文件（bridge.pid / app.pid）
+for f in data/logs/bridge.pid data/logs/app.pid; do
+  if [ -f "$f" ]; then
+    PID=$(cat "$f" 2>/dev/null || true)
+    if [ -n "$PID" ] && kill -0 "$PID" 2>/dev/null; then
+      echo "结束进程 pid=$PID（$f）"
+      kill -9 "$PID" 2>/dev/null || true
+    fi
+    rm -f "$f"
+  fi
+done
+
 echo "已停止。"
 exit 0
