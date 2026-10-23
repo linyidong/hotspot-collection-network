@@ -332,8 +332,11 @@
         if (r.rank) meta.push("第 " + r.rank + " 位");
         if (r.heat) meta.push("热度 " + r.heat);
         if (r.is_duplicate) meta.push("重复");
+        if (r.data_time) meta.push("数据时间 " + r.data_time.slice(5, 16));  // 10-23 23:40
+        var title = esc(r.title);
+        if (r.stale) title += ' <span class="stale">(旧)</span>';
         html += '<a class="prow" href="/static/detail.html?id=' + r.id + '" target="_blank">' +
-          '<span class="pr-t">' + esc(r.title) + "</span>" +
+          '<span class="pr-t">' + title + "</span>" +
           (meta.length ? '<span class="pr-m">' + esc(meta.join(" · ")) + "</span>" : "") +
           "</a>";
       });

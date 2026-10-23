@@ -220,3 +220,4 @@ is_economic=true 且 potential≥阈值 (≈40-60)
 | 版本 | 日期 | 变更 |
 |---|---|---|
 | v1.0 | 2026-10-19 | 首版设计，待用户确认 |
+| v1.0.1 | 2026-10-23 | Amazon 平台榜单（T12 C 方案）采集方式改为 **HTTP 直连解析（httpx + HTML 正则）优先、headless Chrome 兜底**；`platform.refresh()` 每页写 `via`（http/chrome/stale）与 `fetched_at`，失败保留旧数据并标 stale，绝不清空快照（详见 progress.md） |

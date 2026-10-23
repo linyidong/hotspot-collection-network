@@ -28,15 +28,18 @@ class SnapshotSource(BaseSource):
                 + "；先执行：python run.py --platform-snapshot")
         ts = snap.get("ts") or ""
         label = page.get("label") or key
+        is_stale = bool(page.get("stale"))
         out = []
         for it in page.get("items") or []:
             title = (it.get("title") or "").strip()
             url = (it.get("url") or "").strip()
             if not title or not url:
                 continue
+            extra = {"stale": True} if is_stale else {}
             out.append(RawItem(
                 title=title, url=url,
                 summary=f"{label} 第 {it.get('rank', '?')} 名（榜单快照 {ts}）",
                 published_at=ts, source_id=self.spec.id,
+                extra=extra,
             ))
         return out

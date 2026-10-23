@@ -201,9 +201,9 @@
     <div class="layers">
       <div class="layer" data-layer="1" tabindex="0" role="button" aria-expanded="false">
         <div class="lname"><span class="ic">1</span>采集层</div>
-        <div class="ltech"><div class="chips"><span class="chip">直连 API</span><span class="chip">RSS 桥</span><span class="chip">热搜 JSON</span><span class="chip">榜单快照（headless Chrome）</span></div></div>
+        <div class="ltech"><div class="chips"><span class="chip">直连 API</span><span class="chip">RSS 桥</span><span class="chip">热搜 JSON</span><span class="chip">榜单直连（httpx 解析 · Chrome 兜底）</span></div></div>
       </div>
-      <div class="layer-panel hidden" data-layer-panel="1">采集层覆盖 <b>20</b> 个数据源入口：直连上游 API、本地 RSS 桥（http.server 转发）、各平台热搜 JSON，以及用 <b>headless Chrome</b> 抓取的榜单快照。</div>
+      <div class="layer-panel hidden" data-layer-panel="1">采集层覆盖 <b>20</b> 个数据源入口：直连上游 API、本地 RSS 桥（http.server 转发）、各平台热搜 JSON，以及 <b>httpx 直连解析</b>（原 headless Chrome 仅兜底）的榜单快照。</div>
       <div class="layer" data-layer="2" tabindex="0" role="button" aria-expanded="false">
         <div class="lname"><span class="ic">2</span>处理层</div>
         <div class="ltech"><div class="chips"><span class="chip">URL 去重</span><span class="chip">事件相似度合并</span><span class="chip">粗筛（deepseek-flash）</span><span class="chip">深加工（deepseek-v4-pro）</span><span class="chip">12 条结构化校验</span></div></div>
@@ -251,7 +251,7 @@
       <div class="badge">openai SDK<span>DeepSeek 兼容接口</span></div>
       <div class="badge">SQLite (WAL)<span>本地存储</span></div>
       <div class="badge">http.server<span>本地 RSS 桥</span></div>
-      <div class="badge">subprocess + Chrome<span>榜单抓取</span></div>
+      <div class="badge">httpx + Chrome 兜底<span>榜单直连解析（HTTP 优先，原 headless Chrome 兜底）</span></div>
       <div class="badge">python-dotenv<span>环境变量管理</span></div>
     </div>
     <div class="badge-grid hidden" data-tabpanel="data">
@@ -259,7 +259,7 @@
       <div class="badge">本地 RSS 桥 5<span>财联社 / 东财 / 同花顺 / 金十 / 见闻 RSS</span></div>
       <div class="badge">RSS 5<span>Google 新闻 ×5（含必应降级）</span></div>
       <div class="badge">热搜 JSON 3<span>微博 / 抖音 / 百度</span></div>
-      <div class="badge">榜单快照 3<span>Amazon 厨房 / 电子 / 美妆</span></div>
+      <div class="badge">榜单直连 3<span>Amazon 厨房 / 电子 / 美妆（HTTP 直连解析，Chrome 兜底）</span></div>
       <div class="badge">合计 20<span>4 + 5 + 5 + 3 + 3 = 20</span></div>
     </div>
   </section>
@@ -294,9 +294,9 @@
       <div class="src-card" data-src-card data-src-type="hot"><div class="t">微博热搜</div><div class="d">热搜 JSON</div></div>
       <div class="src-card" data-src-card data-src-type="hot"><div class="t">抖音热搜</div><div class="d">热搜 JSON</div></div>
       <div class="src-card" data-src-card data-src-type="hot"><div class="t">百度热搜</div><div class="d">热搜 JSON</div></div>
-      <div class="src-card" data-src-card data-src-type="snap"><div class="t">Amazon 厨房</div><div class="d">榜单快照</div></div>
-      <div class="src-card" data-src-card data-src-type="snap"><div class="t">Amazon 电子</div><div class="d">榜单快照</div></div>
-      <div class="src-card" data-src-card data-src-type="snap"><div class="t">Amazon 美妆</div><div class="d">榜单快照</div></div>
+      <div class="src-card" data-src-card data-src-type="snap"><div class="t">Amazon 厨房</div><div class="d">HTTP 直连解析 · Chrome 兜底</div></div>
+      <div class="src-card" data-src-card data-src-type="snap"><div class="t">Amazon 电子</div><div class="d">HTTP 直连解析 · Chrome 兜底</div></div>
+      <div class="src-card" data-src-card data-src-type="snap"><div class="t">Amazon 美妆</div><div class="d">HTTP 直连解析 · Chrome 兜底</div></div>
     </div>
   </section>
 

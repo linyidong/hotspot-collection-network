@@ -407,7 +407,8 @@ def create_app() -> FastAPI:
 
     @app.get("/api/platform_items")
     def platform_items(per_source: int = 12):
-        """最近一批里的平台侧条目：热搜在前、榜单在后；每个源最多 per_source 条。"""
+        """最近一批里的平台侧条目：热搜在前、榜单在后；每个源最多 per_source 条。
+        Amazon 榜单条目额外注入 data_time（快照该页 fetched_at）与 stale 标记。"""
         import re as _re
         per_source = max(1, min(int(per_source), 30))
         conn = db.get_conn()
@@ -422,6 +423,16 @@ def create_app() -> FastAPI:
                 "ORDER BY i.id", (batch, *PLATFORM_SOURCE_NAMES)).fetchall()
         finally:
             conn.close()
+
+        # Amazon 榜单时间映射：快照页 label → 该页抓取时间/是否 stale
+        try:
+            from ..platform import load as _snap_load
+            _snap = _snap_load()
+            _snap_ts = _snap.get("ts") or ""
+            _pages = {v.get("label"): v for v in (_snap.get("pages") or {}).values()
+                      if v.get("label")}
+        except Exception:
+            _snap_ts, _pages = "", {}
 
         JUNK = ("click for details", "shop now", "sponsored")
         groups, order = {}, []
@@ -439,6 +450,11 @@ def create_app() -> FastAPI:
             d["heat"] = h.group(1) if h else None
             d.pop("summary", None)
             src = d["source"]
+            if src.startswith("Amazon"):
+                page = _pages.get(src) or {}
+                d["data_time"] = page.get("fetched_at") or _snap_ts or None
+                if page.get("stale"):
+                    d["stale"] = True
             if src not in groups:
                 groups[src] = {"fresh": [], "dup": []}
                 order.append(src)

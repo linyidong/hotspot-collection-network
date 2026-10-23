@@ -122,3 +122,4 @@ python run.py
 | 版本 | 日期 | 变更 |
 |---|---|---|
 | v1.0 | 2026-10-19 | 首版，待用户确认 |
+| v1.0.1 | 2026-10-23 | Amazon 平台榜单采集从 headless Chrome 改为 **HTTP 直连解析（httpx + 正则）优先、Chrome 仅兜底**；快照每页带 via（http/chrome/stale）与 fetched_at；失败保留旧数据并标记 stale（详见 progress.md） |

@@ -170,7 +170,7 @@ git checkout v0.1.0-base        # 旧版
 | 热搜 | 微博热搜、**抖音热点榜**、**百度热搜** | T12 需求侧信号（抖音/百度为二期，噪音由粗筛过滤） |
 | 平台榜单 | Amazon 厨房家居 / 电子配件 / 美妆个护 | T12 C 方案，**日更快照** |
 
-**平台榜单是日更快照**（headless Chrome 抓取，约 1 分钟），不跟 3 小时轮次跑。
+**平台榜单是日更快照**（HTTP 直连解析 + HTML 正则，原 headless Chrome 仅作兜底；约 1 分钟），不跟 3 小时轮次跑。
 手动刷新：
 
 ```bash
@@ -225,8 +225,8 @@ cp .env.example .env
 | 端口占用检查 | `netstat` | `lsof -nP -iTCP:9000` |
 | 数据位置 | `data/app.db` | 相同（项目内相对路径） |
 
-> 平台榜单抓取（T12 C 方案）已支持 macOS/Linux 的 Chrome 路径；
-> 若没装 Chrome，只影响 3 个 Amazon 榜单源，其余 15 个源照常工作。
+> 平台榜单抓取（T12 C 方案）已支持 macOS/Linux：HTTP 直连解析优先，Chrome 兜底路径已适配；
+> 若没装 Chrome，只影响 3 个 Amazon 榜单源（且 HTTP 直连已不依赖 Chrome），其余 15 个源照常工作。
 
 ### 4. 常见问题（macOS）
 
