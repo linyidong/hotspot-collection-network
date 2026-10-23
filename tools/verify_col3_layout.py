@@ -71,6 +71,14 @@ def run_at(width, height, tag, results):
             results.append((f"{tag}: CDP 连接", "FAIL", "连不上"))
             return
 
+        def cmd(method, params=None, mid=[9000]):
+            mid[0] += 1
+            ws.send(json.dumps({"id": mid[0], "method": method, "params": params or {}}))
+            while True:
+                m = json.loads(ws.recv())
+                if m.get("id") == mid[0]:
+                    return m.get("result")
+
         def ev(expr, mid=[0]):
             mid[0] += 1
             ws.send(json.dumps({"id": mid[0], "method": "Runtime.evaluate",
@@ -138,6 +146,26 @@ def run_at(width, height, tag, results):
                 a2 = three["g3d"]["w"] / max(1, three["g3d"]["h"])
                 results.append((f"{tag}: 窄屏地球不变形", "PASS" if abs(a1 - a2) <= 0.06 * a1 else "FAIL",
                                 f"宽高比 {a1:.3f} → {a2:.3f}"))
+
+        # ---- 1.5) 窄屏专属：跨断点往返后地球宽度必须等于两列基准 ----
+        if not wide:
+            base_w = base["cen"]["w"]
+            cmd("Emulation.setDeviceMetricsOverride",
+                {"width": 1920, "height": 1000, "deviceScaleFactor": 1, "mobile": False})
+            time.sleep(1.2)
+            big = ev(MEASURE)
+            cmd("Emulation.setDeviceMetricsOverride",
+                {"width": width, "height": height, "deviceScaleFactor": 1, "mobile": False})
+            time.sleep(1.2)
+            small = ev(MEASURE)
+            if isinstance(big, str) or isinstance(small, str):
+                results.append((f"{tag}: 跨断点往返", "FAIL", "测量异常"))
+            else:
+                results.append((f"{tag}: 切到1920后不覆盖", "PASS" if big["overlap"] <= 4 and big["gridPos"] != "absolute" else "FAIL",
+                                f"重叠 {big['overlap']}px pos={big['gridPos']}"))
+                okw = abs(small["cen"]["w"] - base_w) <= 6
+                results.append((f"{tag}: 切回后地球宽度复原", "PASS" if okw else "FAIL",
+                                f"两列 {base_w} → 往返后 {small['cen']['w']}（要求差 ≤6px）"))
 
         # ---- 2) 收起第三列（点「收起第三侧」按钮，若无则拖回） ----
         collapsed = ev("""(() => {

@@ -788,14 +788,39 @@
     return { g: g, L: g.querySelector(".colL"), R: g.querySelector(".colR"),
              C3: g.querySelector(".col3") };
   }
+  // 窄屏三列宽度缓存：key=window.innerWidth 取整，value=同宽度下两列模式的 #cen 宽度。
+  // 跨断点往返后公式实时计算会与初始两列不一致（1440 下 508→469），故优先用缓存锁定。
+  var CEN2COL = {};
+  window.__CEN2COL = CEN2COL;   // 诊断钩子：活引用，供量测脚本读取缓存命中情况
+  function recordCen2Col() {
+    var g = $("grid");
+    if (!g || g.classList.contains("three")) return;   // 仅两列模式记录
+    var cen = $("cen"); if (!cen) return;
+    var w = Math.round(cen.getBoundingClientRect().width);
+    if (w > 0) CEN2COL[Math.round(window.innerWidth)] = w;
+  }
   // 三列时锁住地球区域宽度（地球不变形，画板盖在上面）
   function lockCen(on) {
     var cen = $("cen"), main = document.querySelector("main"), aside = document.querySelector("aside");
     if (!cen || !main) return;
     if (on) {
-      var asideW = aside ? aside.offsetWidth : 0;
-      var gridW = Math.min(1060, Math.max(560, window.innerWidth * 0.48));  // 两列时网格宽度
-      var w = Math.max(320, main.clientWidth - 20 - asideW - gridW - 20);
+      var iw = Math.round(window.innerWidth);
+      var cached = CEN2COL[iw];
+      if (!cached) {                                   // 精确键缺失：取最近视口宽度的缓存
+        var bestD = 101;                               // （跨断点往返后 innerWidth 有 ±16 级微差）
+        for (var k in CEN2COL) {
+          var d = Math.abs(Number(k) - iw);
+          if (d < bestD) { bestD = d; cached = CEN2COL[k]; }
+        }
+      }
+      var w;
+      if (cached) {
+        w = cached;                                    // 优先：同宽度两列时的实测宽度
+      } else {
+        var asideW = aside ? aside.offsetWidth : 0;
+        var gridW = Math.min(1060, Math.max(560, window.innerWidth * 0.48));  // 两列时网格宽度
+        w = Math.max(320, main.clientWidth - 20 - asideW - gridW - 20);       // 兜底公式
+      }
       cen.style.flex = "0 0 auto";
       cen.style.width = w + "px";
     } else {
@@ -826,6 +851,7 @@
   window.addEventListener("resize", function () {
     var g = $("grid");
     if (g && g.classList.contains("three") && !isWide()) lockCen(true);  // 仅窄屏三列需重算锁宽
+    else recordCen2Col();                                                 // 两列尺寸变化时刷新缓存
   });
   // 跨断点自动切换：只在宽/窄状态变化时执行，避免每帧重排
   var lastWide = isWide();
@@ -833,11 +859,13 @@
     new ResizeObserver(function () {
       var w = isWide();
       if (w !== lastWide) { lastWide = w; applyThreeLayout(); }
+      recordCen2Col();                 // 两列状态下记录 #cen 宽度（含首次 observe 回调）
     }).observe(document.documentElement);
   } else {
     window.addEventListener("resize", function () {
       var w = isWide();
       if (w !== lastWide) { lastWide = w; applyThreeLayout(); }
+      recordCen2Col();
     });
   }
 
@@ -867,6 +895,7 @@
         g.removeChild(c3);
         g.classList.remove("three");
         applyThreeLayout();       // 复原两列：清 #cen 内联宽度/左边距 + 重算地球
+        recordCen2Col();          // 退出三列后立即刷新两列宽度缓存
         saveSize();
         colMapSave();
         syncCol3Btn();
