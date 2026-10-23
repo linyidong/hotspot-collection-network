@@ -30,24 +30,32 @@
     overflow-x: hidden;
   }
   .wrap { max-width: 1240px; margin: 0 auto; padding: 34px 28px 48px; }
-  .topbar { display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; }
+  .topbar { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; position: relative; overflow: hidden; }
   .sys-tag {
     font-family: Consolas, "Cascadia Mono", monospace;
     font-size: 12px; letter-spacing: .22em; color: var(--dim);
     border: 1px solid var(--border); border-radius: 6px; padding: 4px 10px;
-    background: var(--card); white-space: nowrap;
+    background: var(--card); display: inline-block;
   }
   h1 {
-    color: #eaf4fb; font-size: clamp(22px, 3.2vw, 34px); font-weight: 700; margin: 6px 0 8px;
+    color: #eaf4fb; font-size: clamp(22px, 3.2vw, 34px); font-weight: 700; margin: 10px 0 8px; position: relative;
   }
   h1 em { color: var(--accent); font-style: normal; }
+  /* hero 光扫动画（无限循环，供 getAnimations 检测） */
+  .hero-sweep {
+    position: absolute; left: -40%; top: 0; bottom: 0; width: 36%;
+    background: linear-gradient(100deg, transparent, rgba(53, 208, 232, .14), transparent);
+    transform: skewX(-18deg);
+    animation: sweep 3.6s linear infinite; pointer-events: none;
+  }
+  @keyframes sweep { 0% { left: -45%; } 60%, 100% { left: 120%; } }
   .sub { color: var(--dim); font-size: 14px; }
   .back {
     display: inline-block; color: var(--light); text-decoration: none;
     font-size: 13px; border: 1px solid var(--border); border-radius: 6px;
-    padding: 6px 12px; transition: background .18s;
+    padding: 6px 12px; transition: background .18s, transform .18s;
   }
-  .back:hover { background: rgba(53, 208, 232, .08); }
+  .back:hover { background: rgba(53, 208, 232, .08); transform: translateY(-1px); }
   section { margin-top: 30px; }
   h2 {
     color: var(--accent); font-size: 16px; letter-spacing: .06em; margin-bottom: 14px;
@@ -57,12 +65,17 @@
     content: ""; width: 10px; height: 10px; border: 2px solid var(--accent);
     transform: rotate(45deg); flex: none;
   }
-  /* 分层架构带：左图标+名称，右技术徽章 */
+  .hidden { display: none !important; }
+  /* 架构层：可点击，展开详情 */
+  .layers { position: relative; }
   .layer {
     display: flex; align-items: flex-start; gap: 18px; flex-wrap: wrap;
     background: var(--card); border: 1px solid var(--border); border-radius: 12px;
-    padding: 18px 20px; margin-bottom: 12px;
+    padding: 16px 20px; margin-bottom: 12px; cursor: pointer;
+    opacity: .72; transition: opacity .25s, border-color .25s, transform .18s;
   }
+  .layer:hover { border-color: rgba(53, 208, 232, .45); transform: translateY(-2px); opacity: .9; }
+  .layer.active { opacity: 1; border-color: rgba(53, 208, 232, .6); box-shadow: 0 0 0 1px rgba(53, 208, 232, .25); }
   .layer .lname {
     min-width: 128px; color: #eaf4fb; font-size: 15px; font-weight: 600;
     display: flex; align-items: center; gap: 10px; flex: 0 1 200px;
@@ -79,34 +92,82 @@
     font-family: Consolas, "Cascadia Mono", monospace; font-size: 12.5px;
     color: var(--light); background: rgba(53, 208, 232, .07);
     border: 1px solid rgba(53, 208, 232, .3); border-radius: 999px; padding: 4px 12px;
-    transition: background .18s, box-shadow .18s;
+    transition: background .18s, transform .18s, box-shadow .18s;
   }
-  .chip:hover { background: rgba(53, 208, 232, .16); box-shadow: 0 0 12px rgba(53, 208, 232, .25); }
-  .badge-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(172px, 1fr)); grid-auto-rows: 1fr; gap: 10px; }
+  .chip:hover { background: rgba(53, 208, 232, .16); transform: translateY(-1px); box-shadow: 0 0 12px rgba(53, 208, 232, .25); }
+  /* 架构层详情面板 */
+  .layer-panel {
+    background: rgba(53, 208, 232, .05); border: 1px solid rgba(53, 208, 232, .25);
+    border-radius: 10px; padding: 14px 18px; margin: -4px 0 14px; font-size: 13px; color: var(--text);
+  }
+  .layer-panel b { color: var(--light); font-family: Consolas, monospace; }
+  /* Tab */
+  .tabs { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
+  .tab {
+    font-family: Consolas, "Cascadia Mono", monospace; font-size: 13px;
+    color: var(--dim); background: var(--card); border: 1px solid var(--border);
+    border-radius: 8px; padding: 7px 16px; cursor: pointer; transition: color .18s, border-color .18s;
+  }
+  .tab[aria-selected="true"], .tab.active { color: var(--accent); border-color: rgba(53, 208, 232, .55); background: rgba(53, 208, 232, .08); }
+  .badge-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(172px, 1fr)); gap: 10px; }
   .badge {
     background: var(--card); border: 1px solid var(--border); border-radius: 10px;
-    padding: 12px 14px; display: flex; flex-direction: column; justify-content: center; font-family: Consolas, "Cascadia Mono", monospace; font-size: 12.5px;
-    color: var(--light); transition: background .18s;
+    padding: 12px 14px; font-family: Consolas, "Cascadia Mono", monospace; font-size: 12.5px;
+    color: var(--light); transition: background .18s, transform .18s;
   }
-  .badge:hover { background: rgba(53, 208, 232, .06); }
+  .badge:hover { background: rgba(53, 208, 232, .06); transform: translateY(-2px); }
   .badge span { color: var(--dim); display: block; font-size: 11px; margin-top: 4px; font-family: inherit; }
-  /* 数据源矩阵 */
-  .mat { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
-  .mat .cell { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; }
-  .mat .cell h4 { color: #eaf4fb; font-size: 13px; margin-bottom: 8px; }
-  .mat .cell h4 b { color: var(--accent); }
-  .mat .cell ul { list-style: none; font-size: 12.5px; color: var(--text); }
-  .mat .cell li { padding: 3px 0 3px 14px; position: relative; }
-  .mat .cell li::before { content: ""; position: absolute; left: 2px; top: 11px; width: 5px; height: 5px; background: var(--accent); border-radius: 50%; }
-  .mat .total {
-    background: rgba(53, 208, 232, .08); border: 1px solid rgba(53, 208, 232, .4);
+  /* 数据源筛选 */
+  .src-toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 14px; }
+  .src-btn {
+    font-family: Consolas, monospace; font-size: 12px; color: var(--dim);
+    background: var(--card); border: 1px solid var(--border); border-radius: 999px;
+    padding: 5px 14px; cursor: pointer; transition: color .18s, border-color .18s;
   }
-  .mat .total li::before { background: var(--light); }
+  .src-btn.active { color: var(--accent); border-color: rgba(53, 208, 232, .55); background: rgba(53, 208, 232, .08); }
+  #srcCount { font-family: Consolas, monospace; font-size: 12.5px; color: var(--light); margin-left: auto; }
+  .src-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+  .src-card {
+    background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+    padding: 11px 13px; font-size: 12.5px; transition: background .18s, transform .18s, opacity .2s;
+  }
+  .src-card:hover { background: rgba(53, 208, 232, .06); transform: translateY(-1px); }
+  .src-card .t { color: #eaf4fb; font-weight: 600; font-family: Consolas, "Cascadia Mono", monospace; font-size: 12.5px; }
+  .src-card .d { color: var(--dim); font-size: 11px; margin-top: 3px; }
+  /* 管线模拟 */
+  .pipe { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 16px 20px; }
+  .pipe-head { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 14px; }
+  #btnRunPipeline {
+    font-family: Consolas, monospace; font-size: 13px; color: var(--bg); font-weight: 700;
+    background: var(--accent); border: none; border-radius: 8px; padding: 8px 18px; cursor: pointer;
+    transition: filter .18s, transform .18s;
+  }
+  #btnRunPipeline:hover { filter: brightness(1.12); transform: translateY(-1px); }
+  .pipe-stages { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+  .p-stage {
+    font-family: Consolas, monospace; font-size: 12px; color: var(--dim);
+    border: 1px solid var(--border); border-radius: 8px; padding: 7px 12px;
+    transition: color .25s, border-color .25s, background .25s, box-shadow .25s;
+  }
+  .p-stage.active { color: var(--accent); border-color: rgba(53, 208, 232, .6); background: rgba(53, 208, 232, .08); box-shadow: 0 0 14px rgba(53, 208, 232, .3); }
+  .p-stage.done { color: #4ade80; border-color: rgba(74, 222, 128, .5); background: rgba(74, 222, 128, .08); }
+  /* 阶段连接线流动光点（动画） */
+  .p-link { position: relative; width: 22px; height: 2px; background: rgba(53, 208, 232, .2); overflow: hidden; border-radius: 2px; }
+  .p-link::after {
+    content: ""; position: absolute; top: 0; bottom: 0; width: 6px; border-radius: 2px;
+    background: var(--accent); animation: flow 1.1s linear infinite;
+  }
+  @keyframes flow { 0% { left: -6px; } 100% { left: 100%; } }
   /* 关键数字 */
   .nums { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
   @media (max-width: 900px) { .nums { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-  .num { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 18px 14px; text-align: center; }
+  .num {
+    background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+    padding: 18px 14px; text-align: center; transition: transform .18s, border-color .18s;
+  }
+  .num:hover { transform: translateY(-2px); border-color: rgba(53, 208, 232, .4); }
   .num .v { font-family: Consolas, "Cascadia Mono", monospace; font-size: 30px; color: var(--accent); font-weight: 700; line-height: 1.1; }
+  .num .v .pfx { font-size: 16px; color: var(--light); margin-right: 2px; }
   .num .k { font-size: 12.5px; color: var(--dim); margin-top: 6px; }
   footer {
     margin-top: 40px; padding-top: 18px; border-top: 1px solid var(--border);
@@ -118,6 +179,9 @@
     .wrap { padding: 24px 16px 40px; }
     .layer .lname { flex: 1 1 100%; }
   }
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
+  }
 </style>
 </head>
 <body>
@@ -125,80 +189,148 @@
   <div class="topbar">
     <div>
       <div class="sys-tag">SYSTEM // TECH STACK</div>
-      <h1>零构建前端 · 两阶段模型 · <em>20 个数据源</em></h1>
+      <h1>零构建前端 · 两阶段模型 · <em>20 个数据源</em><span class="hero-sweep"></span></h1>
       <div class="sub">单机本地运行的商机雷达 —— 后端抓取、清洗、结构化，前端 3D 地球可视化。</div>
     </div>
     <a class="back" href="/">← 返回大屏</a>
   </div>
 
-  <!-- 分区 1：架构总览 -->
+  <!-- 分区 1：架构总览（可点击展开） -->
   <section>
-    <h2>架构总览</h2>
-    <div class="layer"><div class="lname"><span class="ic">1</span>采集层</div><div class="ltech"><div class="chips"><span class="chip">直连 API</span><span class="chip">RSS 桥</span><span class="chip">热搜 JSON</span><span class="chip">榜单快照（headless Chrome）</span></div></div></div>
-    <div class="layer"><div class="lname"><span class="ic">2</span>处理层</div><div class="ltech"><div class="chips"><span class="chip">URL 去重</span><span class="chip">事件相似度合并</span><span class="chip">粗筛（deepseek-flash）</span><span class="chip">深加工（deepseek-v4-pro）</span><span class="chip">12 条结构化校验</span></div></div></div>
-    <div class="layer"><div class="lname"><span class="ic">3</span>存储层</div><div class="ltech"><div class="chips"><span class="chip">SQLite（WAL）</span><span class="chip">9 张表</span><span class="chip">每日备份（保留 7 份）</span><span class="chip">过期清理</span></div></div></div>
-    <div class="layer"><div class="lname"><span class="ic">4</span>展示/运维层</div><div class="ltech"><div class="chips"><span class="chip">FastAPI + uvicorn</span><span class="chip">APScheduler 每日 6 轮</span><span class="chip">预算熔断（软 10% / 硬 2%）</span></div></div></div>
-  </section>
-
-  <!-- 分区 2：前端技术 -->
-  <section>
-    <h2>前端技术</h2>
-    <div class="badge-grid">
-      <div class="badge">原生 HTML5<span>语义化结构，无框架、零构建</span></div>
-      <div class="badge">CSS3<span>变量 + 网格 + 自适应布局</span></div>
-      <div class="badge">原生 JavaScript<span>无框架、零构建</span></div>
-      <div class="badge">three.js r149 (UMD)<span>WebGL 三维地球渲染</span></div>
-      <div class="badge">自定义 GLSL 着色器<span>昼夜 / 云层 / 大气 / 法线</span></div>
-      <div class="badge">Sprite 光点 + 贝塞尔飞线<span>热点数据可视化</span></div>
-      <div class="badge">ResizeObserver<span>响应式两列 / 三列</span></div>
-      <div class="badge">MutationObserver<span>第三列自动收起</span></div>
-      <div class="badge">localStorage 布局记忆<span>记住两列 / 三列偏好</span></div>
+    <h2>架构总览（点击层查看详情）</h2>
+    <div class="layers">
+      <div class="layer" data-layer="1" tabindex="0" role="button" aria-expanded="false">
+        <div class="lname"><span class="ic">1</span>采集层</div>
+        <div class="ltech"><div class="chips"><span class="chip">直连 API</span><span class="chip">RSS 桥</span><span class="chip">热搜 JSON</span><span class="chip">榜单快照（headless Chrome）</span></div></div>
+      </div>
+      <div class="layer-panel hidden" data-layer-panel="1">采集层覆盖 <b>20</b> 个数据源入口：直连上游 API、本地 RSS 桥（http.server 转发）、各平台热搜 JSON，以及用 <b>headless Chrome</b> 抓取的榜单快照。</div>
+      <div class="layer" data-layer="2" tabindex="0" role="button" aria-expanded="false">
+        <div class="lname"><span class="ic">2</span>处理层</div>
+        <div class="ltech"><div class="chips"><span class="chip">URL 去重</span><span class="chip">事件相似度合并</span><span class="chip">粗筛（deepseek-flash）</span><span class="chip">深加工（deepseek-v4-pro）</span><span class="chip">12 条结构化校验</span></div></div>
+      </div>
+      <div class="layer-panel hidden" data-layer-panel="2">处理层执行两阶段模型：先以 <b>deepseek-flash</b> 粗筛召回，再用 <b>deepseek-v4-pro</b> 深加工；全程先做 URL 去重与事件相似度合并，产出必须通过 <b>12 条</b> 结构化校验。</div>
+      <div class="layer" data-layer="3" tabindex="0" role="button" aria-expanded="false">
+        <div class="lname"><span class="ic">3</span>存储层</div>
+        <div class="ltech"><div class="chips"><span class="chip">SQLite（WAL）</span><span class="chip">9 张表</span><span class="chip">每日备份（保留 7 份）</span><span class="chip">过期清理</span></div></div>
+      </div>
+      <div class="layer-panel hidden" data-layer-panel="3">存储层使用 <b>SQLite（WAL 模式，9 张表）</b>；每天自动备份并保留最近 <b>7 份</b>，配合过期清理控制体积。</div>
+      <div class="layer" data-layer="4" tabindex="0" role="button" aria-expanded="false">
+        <div class="lname"><span class="ic">4</span>展示/运维层</div>
+        <div class="ltech"><div class="chips"><span class="chip">FastAPI + uvicorn</span><span class="chip">APScheduler 每日 6 轮</span><span class="chip">预算熔断（软 10% / 硬 2%）</span></div></div>
+      </div>
+      <div class="layer-panel hidden" data-layer-panel="4">展示/运维层由 <b>FastAPI + uvicorn</b> 提供 API 与静态页；<b>APScheduler</b> 每日调度 <b>6 轮</b>采集；预算熔断设软限 <b>10%</b>、硬限 <b>2%</b>。</div>
     </div>
   </section>
 
-  <!-- 分区 3：后端技术 -->
+  <!-- 分区 2/3/4：Tab（前端 / 后端 / 数据） -->
   <section>
-    <h2>后端技术</h2>
-    <div class="badge-grid">
+    <h2>技术栈速览</h2>
+    <div class="tabs">
+      <button class="tab" data-tab="front" type="button" aria-selected="true">前端</button>
+      <button class="tab" data-tab="back" type="button" aria-selected="false">后端</button>
+      <button class="tab" data-tab="data" type="button" aria-selected="false">数据</button>
+    </div>
+    <div class="badge-grid" data-tabpanel="front">
+      <div class="badge">原生 HTML5<span>语义化结构，无框架、零构建</span></div>
+      <div class="badge">CSS3<span>变量 + 网格 + 自适应布局</span></div>
+      <div class="badge">原生 JavaScript<span>零构建</span></div>
+      <div class="badge">three.js r149 (UMD)<span>WebGL 三维地球</span></div>
+      <div class="badge">自定义 GLSL 着色器<span>昼夜 / 云层 / 大气 / 法线</span></div>
+      <div class="badge">Sprite 光点 + 贝塞尔飞线<span>热点可视化</span></div>
+      <div class="badge">ResizeObserver<span>两列 / 三列响应式</span></div>
+      <div class="badge">MutationObserver<span>第三列自动收起</span></div>
+      <div class="badge">localStorage<span>布局记忆</span></div>
+    </div>
+    <div class="badge-grid hidden" data-tabpanel="back">
       <div class="badge">Python 3.12<span>主开发语言</span></div>
-      <div class="badge">FastAPI<span>API 与静态页服务</span></div>
+      <div class="badge">FastAPI<span>API 与静态页</span></div>
       <div class="badge">uvicorn<span>ASGI 服务器</span></div>
       <div class="badge">httpx<span>异步 HTTP 客户端</span></div>
       <div class="badge">feedparser<span>RSS 解析</span></div>
-      <div class="badge">APScheduler<span>定时任务调度</span></div>
+      <div class="badge">APScheduler<span>每日 6 轮调度</span></div>
       <div class="badge">openai SDK<span>DeepSeek 兼容接口</span></div>
       <div class="badge">SQLite (WAL)<span>本地存储</span></div>
       <div class="badge">http.server<span>本地 RSS 桥</span></div>
-      <div class="badge">subprocess + Chrome<span>榜单快照抓取</span></div>
+      <div class="badge">subprocess + Chrome<span>榜单抓取</span></div>
       <div class="badge">python-dotenv<span>环境变量管理</span></div>
     </div>
-  </section>
-
-  <!-- 分区 4：数据源矩阵 -->
-  <section>
-    <h2>数据源矩阵</h2>
-    <div class="mat">
-      <div class="cell"><h4>直连 API · <b>4</b> 个</h4><ul><li>见闻 3 频道</li><li>新浪 7×24</li></ul></div>
-      <div class="cell"><h4>本地 RSS 桥 · <b>5</b> 个</h4><ul><li>财联社</li><li>东方财富</li><li>同花顺</li><li>金十数据</li><li>见闻 RSS</li></ul></div>
-      <div class="cell"><h4>RSS · <b>5</b> 个</h4><ul><li>Google 新闻 ×5</li><li>含必应降级</li></ul></div>
-      <div class="cell"><h4>热搜 JSON · <b>3</b> 个</h4><ul><li>微博</li><li>抖音</li><li>百度</li></ul></div>
-      <div class="cell"><h4>榜单快照 · <b>3</b> 个</h4><ul><li>Amazon 厨房</li><li>Amazon 电子</li><li>Amazon 美妆</li></ul></div>
-      <div class="cell total"><h4>合计 <b>20</b> 个数据源</h4><ul><li>4 + 5 + 5 + 3 + 3 = 20</li></ul></div>
+    <div class="badge-grid hidden" data-tabpanel="data">
+      <div class="badge">直连 API 4<span>见闻 3 频道 + 新浪 7×24</span></div>
+      <div class="badge">本地 RSS 桥 5<span>财联社 / 东财 / 同花顺 / 金十 / 见闻 RSS</span></div>
+      <div class="badge">RSS 5<span>Google 新闻 ×5（含必应降级）</span></div>
+      <div class="badge">热搜 JSON 3<span>微博 / 抖音 / 百度</span></div>
+      <div class="badge">榜单快照 3<span>Amazon 厨房 / 电子 / 美妆</span></div>
+      <div class="badge">合计 20<span>4 + 5 + 5 + 3 + 3 = 20</span></div>
     </div>
   </section>
 
-  <!-- 分区 5：关键数字 -->
+  <!-- 分区：数据源矩阵（可筛选） -->
+  <section>
+    <h2>数据源矩阵</h2>
+    <div class="src-toolbar">
+      <button class="src-btn active" data-src-type="all" type="button">全部</button>
+      <button class="src-btn" data-src-type="direct" type="button">直连 API</button>
+      <button class="src-btn" data-src-type="bridge" type="button">RSS 桥</button>
+      <button class="src-btn" data-src-type="rss" type="button">RSS</button>
+      <button class="src-btn" data-src-type="hot" type="button">热搜 JSON</button>
+      <button class="src-btn" data-src-type="snap" type="button">榜单快照</button>
+      <span id="srcCount">显示 20 / 20</span>
+    </div>
+    <div class="src-grid">
+      <div class="src-card" data-src-card data-src-type="direct"><div class="t">见闻 · 频道 1</div><div class="d">直连 API</div></div>
+      <div class="src-card" data-src-card data-src-type="direct"><div class="t">见闻 · 频道 2</div><div class="d">直连 API</div></div>
+      <div class="src-card" data-src-card data-src-type="direct"><div class="t">见闻 · 频道 3</div><div class="d">直连 API</div></div>
+      <div class="src-card" data-src-card data-src-type="direct"><div class="t">新浪 7×24</div><div class="d">直连 API</div></div>
+      <div class="src-card" data-src-card data-src-type="bridge"><div class="t">财联社</div><div class="d">本地 RSS 桥</div></div>
+      <div class="src-card" data-src-card data-src-type="bridge"><div class="t">东方财富</div><div class="d">本地 RSS 桥</div></div>
+      <div class="src-card" data-src-card data-src-type="bridge"><div class="t">同花顺</div><div class="d">本地 RSS 桥</div></div>
+      <div class="src-card" data-src-card data-src-type="bridge"><div class="t">金十数据</div><div class="d">本地 RSS 桥</div></div>
+      <div class="src-card" data-src-card data-src-type="bridge"><div class="t">见闻 RSS</div><div class="d">本地 RSS 桥</div></div>
+      <div class="src-card" data-src-card data-src-type="rss"><div class="t">Google 新闻 1</div><div class="d">RSS</div></div>
+      <div class="src-card" data-src-card data-src-type="rss"><div class="t">Google 新闻 2</div><div class="d">RSS</div></div>
+      <div class="src-card" data-src-card data-src-type="rss"><div class="t">Google 新闻 3</div><div class="d">RSS</div></div>
+      <div class="src-card" data-src-card data-src-type="rss"><div class="t">Google 新闻 4</div><div class="d">RSS</div></div>
+      <div class="src-card" data-src-card data-src-type="rss"><div class="t">必应降级</div><div class="d">RSS 备用</div></div>
+      <div class="src-card" data-src-card data-src-type="hot"><div class="t">微博热搜</div><div class="d">热搜 JSON</div></div>
+      <div class="src-card" data-src-card data-src-type="hot"><div class="t">抖音热搜</div><div class="d">热搜 JSON</div></div>
+      <div class="src-card" data-src-card data-src-type="hot"><div class="t">百度热搜</div><div class="d">热搜 JSON</div></div>
+      <div class="src-card" data-src-card data-src-type="snap"><div class="t">Amazon 厨房</div><div class="d">榜单快照</div></div>
+      <div class="src-card" data-src-card data-src-type="snap"><div class="t">Amazon 电子</div><div class="d">榜单快照</div></div>
+      <div class="src-card" data-src-card data-src-type="snap"><div class="t">Amazon 美妆</div><div class="d">榜单快照</div></div>
+    </div>
+  </section>
+
+  <!-- 分区：管线模拟 -->
+  <section>
+    <h2>数据处理管线</h2>
+    <div class="pipe">
+      <div class="pipe-head">
+        <button id="btnRunPipeline" type="button">跑一轮</button>
+        <span style="font-size:12px;color:var(--dim)">模拟一轮完整处理：逐段点亮</span>
+      </div>
+      <div class="pipe-stages">
+        <span class="p-stage" data-stage="1">采集</span><span class="p-link"></span>
+        <span class="p-stage" data-stage="2">去重</span><span class="p-link"></span>
+        <span class="p-stage" data-stage="3">粗筛</span><span class="p-link"></span>
+        <span class="p-stage" data-stage="4">深加工</span><span class="p-link"></span>
+        <span class="p-stage" data-stage="5">校验</span><span class="p-link"></span>
+        <span class="p-stage" data-stage="6">出卡</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- 分区：关键数字（滚动递增） -->
   <section>
     <h2>关键数字</h2>
     <div class="nums">
-      <div class="num"><div class="v">20</div><div class="k">数据源</div></div>
-      <div class="num"><div class="v">9</div><div class="k">张数据表</div></div>
-      <div class="num"><div class="v">2</div><div class="k">阶段模型</div></div>
-      <div class="num"><div class="v">12</div><div class="k">条结构化校验</div></div>
-      <div class="num"><div class="v">6</div><div class="k">轮 / 天</div></div>
-      <div class="num"><div class="v">¥0.65</div><div class="k">单轮预算</div></div>
-      <div class="num"><div class="v">5400px</div><div class="k">地球贴图</div></div>
-      <div class="num"><div class="v">18</div><div class="k">项 API</div></div>
+      <div class="num"><div class="v"><span data-num data-target="20">0</span></div><div class="k">数据源</div></div>
+      <div class="num"><div class="v"><span data-num data-target="9">0</span></div><div class="k">张数据表</div></div>
+      <div class="num"><div class="v"><span data-num data-target="2">0</span></div><div class="k">阶段模型</div></div>
+      <div class="num"><div class="v"><span data-num data-target="12">0</span></div><div class="k">条结构化校验</div></div>
+      <div class="num"><div class="v"><span data-num data-target="6">0</span></div><div class="k">轮 / 天</div></div>
+      <div class="num"><div class="v"><span class="pfx">¥</span><span data-num data-target="0.65">0</span></div><div class="k">单轮预算</div></div>
+      <div class="num"><div class="v"><span data-num data-target="5400">0</span><span class="pfx">px</span></div><div class="k">地球贴图</div></div>
+      <div class="num"><div class="v"><span data-num data-target="18">0</span></div><div class="k">项 API</div></div>
     </div>
   </section>
 
@@ -208,5 +340,117 @@
     <a href="/">← 返回大屏</a>
   </footer>
 </div>
+
+<script>
+(function () {
+  "use strict";
+  // 1) 架构层：点击展开/收起详情，高亮当前层、其它层降透明度
+  var layers = document.querySelectorAll('[data-layer]');
+  layers.forEach(function (layer) {
+    layer.addEventListener('click', function () {
+      var id = layer.getAttribute('data-layer');
+      var wasOpen = layer.classList.contains('active');
+      layers.forEach(function (l) { l.classList.remove('active'); l.setAttribute('aria-expanded', 'false'); });
+      document.querySelectorAll('[data-layer-panel]').forEach(function (p) { p.classList.add('hidden'); });
+      if (!wasOpen) {
+        layer.classList.add('active');
+        layer.setAttribute('aria-expanded', 'true');
+        var panel = document.querySelector('[data-layer-panel="' + id + '"]');
+        if (panel) panel.classList.remove('hidden');
+      }
+    });
+  });
+
+  // 2) Tab 切换（同一时刻只显示一个面板，按钮维护 aria-selected）
+  var tabBtns = document.querySelectorAll('[data-tab]');
+  function showTab(id) {
+    tabBtns.forEach(function (b) {
+      b.setAttribute('aria-selected', b.getAttribute('data-tab') === id ? 'true' : 'false');
+    });
+    document.querySelectorAll('[data-tabpanel]').forEach(function (p) {
+      p.classList.toggle('hidden', p.getAttribute('data-tabpanel') !== id);
+    });
+  }
+  tabBtns.forEach(function (b) {
+    b.addEventListener('click', function () { showTab(b.getAttribute('data-tab')); });
+  });
+
+  // 3) 数据源筛选
+  var srcBtns = document.querySelectorAll('[data-src-type]');
+  var srcCards = document.querySelectorAll('[data-src-card]');
+  function applySrc(type) {
+    var vis = 0;
+    srcCards.forEach(function (c) {
+      var show = type === 'all' || c.getAttribute('data-src-type') === type;
+      c.classList.toggle('hidden', !show);
+      if (show) vis++;
+    });
+    var cnt = document.getElementById('srcCount');
+    if (cnt) cnt.textContent = '显示 ' + vis + ' / ' + srcCards.length;
+    srcBtns.forEach(function (b) {
+      b.classList.toggle('active', b.getAttribute('data-src-type') === type);
+    });
+  }
+  srcBtns.forEach(function (b) {
+    b.addEventListener('click', function () { applySrc(b.getAttribute('data-src-type')); });
+  });
+
+  // 4) 管线模拟：每 320ms 点亮下一阶段，完成后按钮改为「再跑一轮」
+  var pipeBtn = document.getElementById('btnRunPipeline');
+  var stages = document.querySelectorAll('[data-stage]');
+  if (pipeBtn) {
+    pipeBtn.addEventListener('click', function () {
+      stages.forEach(function (s) { s.classList.remove('active', 'done'); });
+      var idx = 0;
+      var timer = setInterval(function () {
+        if (idx > 0 && stages[idx - 1]) {
+          stages[idx - 1].classList.remove('active');
+          stages[idx - 1].classList.add('done');
+        }
+        if (idx < stages.length) stages[idx].classList.add('active');
+        idx++;
+        if (idx >= stages.length) {
+          clearInterval(timer);
+          stages[stages.length - 1].classList.remove('active');
+          stages[stages.length - 1].classList.add('done');
+          pipeBtn.textContent = '再跑一轮';
+        }
+      }, 320);
+    });
+  }
+
+  // 5) 关键数字：IntersectionObserver 进入视口后从 0 递增到 target（约 900ms）
+  var nums = document.querySelectorAll('[data-num][data-target]');
+  function animateNum(el) {
+    if (el.getAttribute('data-done')) return;
+    el.setAttribute('data-done', '1');
+    var target = parseFloat(el.getAttribute('data-target') || '0');
+    if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      el.textContent = String(target);
+      return;
+    }
+    var start = null;
+    function step(ts) {
+      if (!start) start = ts;
+      var p = Math.min((ts - start) / 900, 1);
+      var val = (target * p).toFixed(2).replace(/\.?0+$/, '');
+      el.textContent = val === '' ? '0' : val;
+      if (p < 1) requestAnimationFrame(step);
+      else el.textContent = String(target);
+    }
+    requestAnimationFrame(step);
+  }
+  if ('IntersectionObserver' in window) {
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) {
+        if (e.isIntersecting) { animateNum(e.target); io.unobserve(e.target); }
+      });
+    }, { threshold: 0.2 });
+    nums.forEach(function (n) { io.observe(n); });
+  } else {
+    nums.forEach(animateNum);
+  }
+})();
+</script>
 </body>
 </html>
