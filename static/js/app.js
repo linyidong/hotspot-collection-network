@@ -808,8 +808,8 @@
     if (g && g.classList.contains("three")) lockCen(true);
   });
 
-  // 开启 / 收起第三列
-  function ensureCol3(on) {
+  // 开启 / 收起第三列（force=true 时无条件收起）
+  function ensureCol3(on, force) {
     var g = $("grid");
     var c3 = g.querySelector(".col3");
     if (on && !c3) {
@@ -825,15 +825,19 @@
       var vis = Array.prototype.slice.call(c3.children).filter(function (p) {
         return !p.classList.contains("removed");
       });
-      if (!vis.length) {          // 没有可见面板 → 真正收起
+      if (force === true || !vis.length) {   // force 无条件收；否则仅无可见面板时收
         var L = g.querySelector(".colL");
         Array.prototype.slice.call(c3.children).forEach(function (p) {
-          L.appendChild(p);       // 隐藏中的面板搬回左列，避免丢
-          p.__w = 1; p.__w0 = 1; p.style.flexGrow = 1;
+          L.appendChild(p);       // 全部子面板（含 removed）按 DOM 顺序搬回左列，避免丢
+          p.__w = 1; p.__w0 = 1; p.style.flexGrow = 1; p.style.flexBasis = "0";
         });
         g.removeChild(c3);
         g.classList.remove("three");
         lockCen(false);           // 恢复自适应
+        var cen = $("cen");       // 清掉地球区的内联宽度/左边距
+        if (cen) { cen.style.width = ""; cen.style.marginLeft = ""; cen.style.flex = ""; }
+        saveSize();
+        colMapSave();
         syncCol3Btn();
         return null;
       }
@@ -844,12 +848,15 @@
     var g = $("grid");
     var c3 = g.querySelector(".col3");
     if (!c3) return;
-    if (!force) {
-      var vis = Array.prototype.slice.call(c3.children).filter(function (p) {
-        return !p.classList.contains("removed");
-      });
-      if (vis.length) return;     // 还有可见面板 → 不收
+    if (force === true) {          // 强制收起：不再判断可见性，直接走 ensureCol3
+      ensureCol3(false, true);
+      syncCol3Btn();
+      return;
     }
+    var vis = Array.prototype.slice.call(c3.children).filter(function (p) {
+      return !p.classList.contains("removed");
+    });
+    if (vis.length) return;        // 还有可见面板 → 不收
     ensureCol3(false);
     syncCol3Btn();
   }

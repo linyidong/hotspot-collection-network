@@ -142,3 +142,4 @@
 | 2026-10-23 11:40 | RSS 桥端口改为自动分配：优先 RSS_BRIDGE_PORT(8053)，被占用则 +1 到 +20，全满由系统随机；collect 用运行时 bridge.port；启动写 data/logs/bridge.pid。实测：8053 被占时自动用 8054（桥源 200/50 条），8053 空闲时回到 8053 |
 | 2026-10-23 11:41 | 停止脚本适配动态端口并修掉一个危险写法：不再用命令行匹配 china-finance-rss（会把执行脚本的 shell 一起杀掉），改为 pid 文件 + 端口扫描 8053-8075；Mac 停止.command 同样按 bridge.pid/app.pid + 端口。实测停止后 9000/8053/8054 全部释放 |
 | 2026-10-23 11:42 | Windows 端口探测修正：SO_REUSEADDR 在 Windows 上允许抢占已监听端口导致误判空闲，改用 SO_EXCLUSIVEADDRUSE 独占探测 |
+| 2026-10-23 14:12 | 三列布局改造（任务 A）：`ensureCol3(on, force)` 支持强制收起——force 时把 `.col3` 全部面板（含 removed）搬回左列、权重重置 1、清空 `#cen` 内联 width/marginLeft、saveSize/colMapSave；`collapseCol3IfEmpty(true)` 直接走强制分支。DSH 独立验收：点「收起第三侧」后 two=false/无 .col3/8 块全可见/重叠 0px/两列高差 0（17 PASS，仅宽屏遮挡 2 项待任务 B）。另修验收脚本就绪竞态（等 .colL + __leads 再量） |
