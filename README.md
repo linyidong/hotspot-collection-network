@@ -91,6 +91,10 @@ data/app.db         # 数据库（首次启动自动生成，不进 git）
 
 > 以下为实机截图（1920×1080 / 2560×1440），已压缩为 WebP；重新生成：`python tools/make_preview_shots.py`
 
+### 技术栈总览（顶部导航「技术栈」可进入）
+
+![技术栈页](docs/images/stack-1920.webp)
+
 ### 大屏（两列 · 白天）
 
 ![大屏两列](docs/images/dash-2col.webp)

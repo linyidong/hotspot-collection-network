@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>技术栈 · SYSTEM // TECH STACK</title>
+<style>
+  :root {
+    --bg: #060a12;
+    --card: #0a1220;
+    --accent: #35d0e8;
+    --light: #7fe6f5;
+    --border: rgba(120, 180, 255, .15);
+    --text: #c7d6e6;
+    --dim: #6b7d95;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { min-width: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+    line-height: 1.55;
+    background-image:
+      radial-gradient(1200px 600px at 20% -10%, rgba(53, 208, 232, .06), transparent 60%),
+      radial-gradient(1000px 500px at 100% 0%, rgba(53, 208, 232, .05), transparent 55%),
+      linear-gradient(rgba(53, 208, 232, .025) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(53, 208, 232, .025) 1px, transparent 1px);
+    background-size: auto, auto, 42px 42px, 42px 42px;
+    overflow-x: hidden;
+  }
+  .wrap { max-width: 1240px; margin: 0 auto; padding: 34px 28px 48px; }
+  .topbar { display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; }
+  .sys-tag {
+    font-family: Consolas, "Cascadia Mono", monospace;
+    font-size: 12px; letter-spacing: .22em; color: var(--dim);
+    border: 1px solid var(--border); border-radius: 6px; padding: 4px 10px;
+    background: var(--card); white-space: nowrap;
+  }
+  h1 {
+    color: #eaf4fb; font-size: clamp(22px, 3.2vw, 34px); font-weight: 700; margin: 6px 0 8px;
+  }
+  h1 em { color: var(--accent); font-style: normal; }
+  .sub { color: var(--dim); font-size: 14px; }
+  .back {
+    display: inline-block; color: var(--light); text-decoration: none;
+    font-size: 13px; border: 1px solid var(--border); border-radius: 6px;
+    padding: 6px 12px; transition: background .18s;
+  }
+  .back:hover { background: rgba(53, 208, 232, .08); }
+  section { margin-top: 30px; }
+  h2 {
+    color: var(--accent); font-size: 16px; letter-spacing: .06em; margin-bottom: 14px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  h2::before {
+    content: ""; width: 10px; height: 10px; border: 2px solid var(--accent);
+    transform: rotate(45deg); flex: none;
+  }
+  /* 分层架构带：左图标+名称，右技术徽章 */
+  .layer {
+    display: flex; align-items: flex-start; gap: 18px; flex-wrap: wrap;
+    background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+    padding: 18px 20px; margin-bottom: 12px;
+  }
+  .layer .lname {
+    min-width: 128px; color: #eaf4fb; font-size: 15px; font-weight: 600;
+    display: flex; align-items: center; gap: 10px; flex: 0 1 200px;
+  }
+  .layer .lname .ic {
+    width: 34px; height: 34px; flex: none; border-radius: 8px;
+    background: rgba(53, 208, 232, .1); border: 1px solid rgba(53, 208, 232, .35);
+    display: inline-flex; align-items: center; justify-content: center;
+    color: var(--accent); font-family: Consolas, monospace; font-size: 16px;
+  }
+  .layer .ltech { flex: 1; min-width: 240px; color: var(--text); font-size: 13.5px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip {
+    font-family: Consolas, "Cascadia Mono", monospace; font-size: 12.5px;
+    color: var(--light); background: rgba(53, 208, 232, .07);
+    border: 1px solid rgba(53, 208, 232, .3); border-radius: 999px; padding: 4px 12px;
+    transition: background .18s, box-shadow .18s;
+  }
+  .chip:hover { background: rgba(53, 208, 232, .16); box-shadow: 0 0 12px rgba(53, 208, 232, .25); }
+  .badge-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(172px, 1fr)); grid-auto-rows: 1fr; gap: 10px; }
+  .badge {
+    background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+    padding: 12px 14px; display: flex; flex-direction: column; justify-content: center; font-family: Consolas, "Cascadia Mono", monospace; font-size: 12.5px;
+    color: var(--light); transition: background .18s;
+  }
+  .badge:hover { background: rgba(53, 208, 232, .06); }
+  .badge span { color: var(--dim); display: block; font-size: 11px; margin-top: 4px; font-family: inherit; }
+  /* 数据源矩阵 */
+  .mat { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+  .mat .cell { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; }
+  .mat .cell h4 { color: #eaf4fb; font-size: 13px; margin-bottom: 8px; }
+  .mat .cell h4 b { color: var(--accent); }
+  .mat .cell ul { list-style: none; font-size: 12.5px; color: var(--text); }
+  .mat .cell li { padding: 3px 0 3px 14px; position: relative; }
+  .mat .cell li::before { content: ""; position: absolute; left: 2px; top: 11px; width: 5px; height: 5px; background: var(--accent); border-radius: 50%; }
+  .mat .total {
+    background: rgba(53, 208, 232, .08); border: 1px solid rgba(53, 208, 232, .4);
+  }
+  .mat .total li::before { background: var(--light); }
+  /* 关键数字 */
+  .nums { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+  @media (max-width: 900px) { .nums { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  .num { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 18px 14px; text-align: center; }
+  .num .v { font-family: Consolas, "Cascadia Mono", monospace; font-size: 30px; color: var(--accent); font-weight: 700; line-height: 1.1; }
+  .num .k { font-size: 12.5px; color: var(--dim); margin-top: 6px; }
+  footer {
+    margin-top: 40px; padding-top: 18px; border-top: 1px solid var(--border);
+    display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+    color: var(--dim); font-size: 12px; font-family: Consolas, "Cascadia Mono", monospace;
+  }
+  footer a { color: var(--light); text-decoration: none; }
+  @media (max-width: 760px) {
+    .wrap { padding: 24px 16px 40px; }
+    .layer .lname { flex: 1 1 100%; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="topbar">
+    <div>
+      <div class="sys-tag">SYSTEM // TECH STACK</div>
+      <h1>零构建前端 · 两阶段模型 · <em>20 个数据源</em></h1>
+      <div class="sub">单机本地运行的商机雷达 —— 后端抓取、清洗、结构化，前端 3D 地球可视化。</div>
+    </div>
+    <a class="back" href="/">← 返回大屏</a>
+  </div>
+
+  <!-- 分区 1：架构总览 -->
+  <section>
+    <h2>架构总览</h2>
+    <div class="layer"><div class="lname"><span class="ic">1</span>采集层</div><div class="ltech"><div class="chips"><span class="chip">直连 API</span><span class="chip">RSS 桥</span><span class="chip">热搜 JSON</span><span class="chip">榜单快照（headless Chrome）</span></div></div></div>
+    <div class="layer"><div class="lname"><span class="ic">2</span>处理层</div><div class="ltech"><div class="chips"><span class="chip">URL 去重</span><span class="chip">事件相似度合并</span><span class="chip">粗筛（deepseek-flash）</span><span class="chip">深加工（deepseek-v4-pro）</span><span class="chip">12 条结构化校验</span></div></div></div>
+    <div class="layer"><div class="lname"><span class="ic">3</span>存储层</div><div class="ltech"><div class="chips"><span class="chip">SQLite（WAL）</span><span class="chip">9 张表</span><span class="chip">每日备份（保留 7 份）</span><span class="chip">过期清理</span></div></div></div>
+    <div class="layer"><div class="lname"><span class="ic">4</span>展示/运维层</div><div class="ltech"><div class="chips"><span class="chip">FastAPI + uvicorn</span><span class="chip">APScheduler 每日 6 轮</span><span class="chip">预算熔断（软 10% / 硬 2%）</span></div></div></div>
+  </section>
+
+  <!-- 分区 2：前端技术 -->
+  <section>
+    <h2>前端技术</h2>
+    <div class="badge-grid">
+      <div class="badge">原生 HTML5<span>语义化结构，无框架、零构建</span></div>
+      <div class="badge">CSS3<span>变量 + 网格 + 自适应布局</span></div>
+      <div class="badge">原生 JavaScript<span>无框架、零构建</span></div>
+      <div class="badge">three.js r149 (UMD)<span>WebGL 三维地球渲染</span></div>
+      <div class="badge">自定义 GLSL 着色器<span>昼夜 / 云层 / 大气 / 法线</span></div>
+      <div class="badge">Sprite 光点 + 贝塞尔飞线<span>热点数据可视化</span></div>
+      <div class="badge">ResizeObserver<span>响应式两列 / 三列</span></div>
+      <div class="badge">MutationObserver<span>第三列自动收起</span></div>
+      <div class="badge">localStorage 布局记忆<span>记住两列 / 三列偏好</span></div>
+    </div>
+  </section>
+
+  <!-- 分区 3：后端技术 -->
+  <section>
+    <h2>后端技术</h2>
+    <div class="badge-grid">
+      <div class="badge">Python 3.12<span>主开发语言</span></div>
+      <div class="badge">FastAPI<span>API 与静态页服务</span></div>
+      <div class="badge">uvicorn<span>ASGI 服务器</span></div>
+      <div class="badge">httpx<span>异步 HTTP 客户端</span></div>
+      <div class="badge">feedparser<span>RSS 解析</span></div>
+      <div class="badge">APScheduler<span>定时任务调度</span></div>
+      <div class="badge">openai SDK<span>DeepSeek 兼容接口</span></div>
+      <div class="badge">SQLite (WAL)<span>本地存储</span></div>
+      <div class="badge">http.server<span>本地 RSS 桥</span></div>
+      <div class="badge">subprocess + Chrome<span>榜单快照抓取</span></div>
+      <div class="badge">python-dotenv<span>环境变量管理</span></div>
+    </div>
+  </section>
+
+  <!-- 分区 4：数据源矩阵 -->
+  <section>
+    <h2>数据源矩阵</h2>
+    <div class="mat">
+      <div class="cell"><h4>直连 API · <b>4</b> 个</h4><ul><li>见闻 3 频道</li><li>新浪 7×24</li></ul></div>
+      <div class="cell"><h4>本地 RSS 桥 · <b>5</b> 个</h4><ul><li>财联社</li><li>东方财富</li><li>同花顺</li><li>金十数据</li><li>见闻 RSS</li></ul></div>
+      <div class="cell"><h4>RSS · <b>5</b> 个</h4><ul><li>Google 新闻 ×5</li><li>含必应降级</li></ul></div>
+      <div class="cell"><h4>热搜 JSON · <b>3</b> 个</h4><ul><li>微博</li><li>抖音</li><li>百度</li></ul></div>
+      <div class="cell"><h4>榜单快照 · <b>3</b> 个</h4><ul><li>Amazon 厨房</li><li>Amazon 电子</li><li>Amazon 美妆</li></ul></div>
+      <div class="cell total"><h4>合计 <b>20</b> 个数据源</h4><ul><li>4 + 5 + 5 + 3 + 3 = 20</li></ul></div>
+    </div>
+  </section>
+
+  <!-- 分区 5：关键数字 -->
+  <section>
+    <h2>关键数字</h2>
+    <div class="nums">
+      <div class="num"><div class="v">20</div><div class="k">数据源</div></div>
+      <div class="num"><div class="v">9</div><div class="k">张数据表</div></div>
+      <div class="num"><div class="v">2</div><div class="k">阶段模型</div></div>
+      <div class="num"><div class="v">12</div><div class="k">条结构化校验</div></div>
+      <div class="num"><div class="v">6</div><div class="k">轮 / 天</div></div>
+      <div class="num"><div class="v">¥0.65</div><div class="k">单轮预算</div></div>
+      <div class="num"><div class="v">5400px</div><div class="k">地球贴图</div></div>
+      <div class="num"><div class="v">18</div><div class="k">项 API</div></div>
+    </div>
+  </section>
+
+  <footer>
+    <span>v0.1.0</span>
+    <span id="upd">更新时间：2026-10-23</span>
+    <a href="/">← 返回大屏</a>
+  </footer>
+</div>
+</body>
+</html>
