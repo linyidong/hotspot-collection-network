@@ -199,13 +199,16 @@ def start(deep_limit=None):
                   max_instances=1, coalesce=True)
 
     sched.start()
-    # 启动清理：立即补一次过期数据清理
-    # 启动补备份：超过 24 小时没有备份就补一份
+    # 启动补备份：今天还没有备份就补一份
+    # （只按 24 小时判断会漏：03:30 关机、上午开机时距上次备份不足 24h，当天就没备份了）
     try:
         from .backup import last_backup
-        import time as _t
         lb = last_backup()
-        if lb is None or (_t.time() - lb.stat().st_mtime) > 86400:
+        need_backup = True
+        if lb is not None:
+            from datetime import date
+            need_backup = date.fromtimestamp(lb.stat().st_mtime) != date.today()
+        if need_backup:
             _backup_now()
     except Exception as exc:
         print(f"[备份] 启动检查失败：{exc}", flush=True)
