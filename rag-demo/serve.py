@@ -64,8 +64,8 @@ class Handler(BaseHTTPRequestHandler):
                 hits = ask.retrieve(q, k, kind)
                 if not hits:
                     return self._json(200, {"ok": True, "answer": "没有命中资料，不调用模型。", "hits": []})
-                ans = ask.call_llm(ask.build_prompt(q, hits), ask.load_env())
-                return self._json(200, {"ok": True, "answer": ans, "hits": hits})
+                text, engine = ask.answer(ask.build_prompt(q, hits), ask.load_env())
+                return self._json(200, {"ok": True, "answer": text, "engine": engine, "hits": hits})
             except Exception as e:
                 # 模型不可用时，检索结果仍然返回——这就是检索与生成分离的意义
                 try:

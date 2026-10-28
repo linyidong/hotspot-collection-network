@@ -52,8 +52,8 @@ def load_env(path: str = ENV_PATH) -> dict:
     return env
 
 
-def fts_query(q: str) -> str:
-    toks = [t for t in tokenize(q).split() if t not in STOP_BIGRAMS]
+def fts_query(q: str, stop: bool = True) -> str:
+    toks = [t for t in tokenize(q).split() if not (stop and t in STOP_BIGRAMS)]
     if not toks:
         return ""
     # 去重保序
@@ -79,10 +79,18 @@ def window(body: str, q: str, width: int = 90) -> str:
     return body[:width] + ("…" if len(body) > width else "")
 
 
-def retrieve(q: str, k: int = 8, kind: str | None = None) -> list[dict]:
+def retrieve(
+    q: str,
+    k: int = 8,
+    kind: str | None = None,
+    stop: bool = True,
+    dedupe: bool = True,
+    cutoff_ratio: float = 0.45,
+) -> list[dict]:
+    """检索。stop/dedupe/cutoff_ratio 可关，用于评测里做 A/B 对比（关掉即"改动之前的行为"）。"""
     if not os.path.exists(RAG_DB):
         raise SystemExit(f"找不到索引 {RAG_DB}，先跑 python build_index.py")
-    expr = fts_query(q)
+    expr = fts_query(q, stop=stop)
     if not expr:
         return []
     sql = """
@@ -95,32 +103,36 @@ def retrieve(q: str, k: int = 8, kind: str | None = None) -> list[dict]:
     if kind:
         sql += " and d.kind = ?"
         params.append(kind)
+    want = max(k * 3, 12) if (dedupe or cutoff_ratio > 0) else k
     sql += " order by score limit ?"
-    params.append(max(k * 3, 12))  # 多取一些，后面去重与截断
+    params.append(want)  # 需要去重/截断时多取一些
 
     con = sqlite3.connect(RAG_DB)
     con.row_factory = sqlite3.Row
     rows = con.execute(sql, params).fetchall()
     con.close()
 
-    # 1) 去重：同一篇文章可能被多个批次重复分析；榜单类同款商品每天生成一条（标题相同、url 带不同快照参数）。
-    #    所以按「规范化标题」去重，而不是按 url——url 去重会被快照参数骗过去。保留分数最高的一条。
-    def _key(r):
-        t = re.sub(r"\s+", "", (r["title"] or "")).strip().lower()
-        if not t:
-            return (r["url"] or "").strip() or f"__{r['id']}"
-        return t[:40]
+    uniq = sorted(rows, key=lambda r: r["score"])
 
-    best: dict[str, sqlite3.Row] = {}
-    for r in rows:
-        dk = _key(r)
-        if dk not in best or r["score"] < best[dk]["score"]:  # bm25 越小越相关
-            best[dk] = r
-    uniq = sorted(best.values(), key=lambda r: r["score"])
+    if dedupe:
+        # 去重：同一篇文章可能被多个批次重复分析；榜单类同款商品每天生成一条（标题相同、url 带不同快照参数）。
+        # 所以按「规范化标题」去重，而不是按 url——url 去重会被快照参数骗过去。保留分数最高的一条。
+        def _key(r):
+            t = re.sub(r"\s+", "", (r["title"] or "")).strip().lower()
+            if not t:
+                return (r["url"] or "").strip() or f"__{r['id']}"
+            return t[:40]
 
-    # 2) 相对分数截断：只保留与最佳结果同量级的，去掉靠 OR 拼出来的噪声尾巴
-    if uniq:
-        cutoff = uniq[0]["score"] * 0.45
+        best: dict[str, sqlite3.Row] = {}
+        for r in uniq:
+            dk = _key(r)
+            if dk not in best or r["score"] < best[dk]["score"]:  # bm25 越小越相关
+                best[dk] = r
+        uniq = sorted(best.values(), key=lambda r: r["score"])
+
+    # 相对分数截断：只保留与最佳结果同量级的，去掉靠 OR 拼出来的噪声尾巴
+    if uniq and cutoff_ratio > 0:
+        cutoff = uniq[0]["score"] * cutoff_ratio
         uniq = [r for r in uniq if r["score"] <= cutoff]
     uniq = uniq[:k]
 
@@ -167,12 +179,8 @@ def build_prompt(q: str, hits: list[dict]) -> str:
     )
 
 
-def call_llm(prompt: str, env: dict, timeout: int = 60) -> str:
-    key = env.get("DEEPSEEK_API_KEY")
-    base = (env.get("DEEPSEEK_BASE_URL") or "https://api.deepseek.com").rstrip("/")
-    model = env.get("DEEP_MODEL") or env.get("COARSE_MODEL") or "deepseek-chat"
-    if not key:
-        raise RuntimeError("没有 DEEPSEEK_API_KEY（检查项目根目录 .env）")
+def _chat(base: str, key: str, model: str, prompt: str, timeout: int) -> str:
+    """所有 OpenAI 兼容端点通用（DeepSeek / 硅基流动 / Ollama / LM Studio 都是这个形状）。"""
     body = json.dumps(
         {
             "model": model,
@@ -185,7 +193,7 @@ def call_llm(prompt: str, env: dict, timeout: int = 60) -> str:
         }
     ).encode("utf-8")
     req = urllib.request.Request(
-        f"{base}/chat/completions",
+        f"{base.rstrip('/')}/chat/completions",
         data=body,
         headers={"Content-Type": "application/json", "Authorization": f"Bearer {key}"},
         method="POST",
@@ -193,6 +201,41 @@ def call_llm(prompt: str, env: dict, timeout: int = 60) -> str:
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         data = json.loads(resp.read().decode("utf-8"))
     return data["choices"][0]["message"]["content"]
+
+
+def call_llm(prompt: str, env: dict, timeout: int = 60) -> str:
+    key = env.get("DEEPSEEK_API_KEY")
+    base = env.get("DEEPSEEK_BASE_URL") or "https://api.deepseek.com"
+    model = env.get("DEEP_MODEL") or env.get("COARSE_MODEL") or "deepseek-chat"
+    if not key:
+        raise RuntimeError("没有 DEEPSEEK_API_KEY（检查项目根目录 .env）")
+    return _chat(base, key, model, prompt, timeout)
+
+
+def call_local(prompt: str, env: dict, timeout: int = 180) -> str:
+    """本地模型兜底：任何 OpenAI 兼容的本地服务都能用。
+
+    Ollama:    LOCAL_LLM_BASE=http://127.0.0.1:11434/v1  LOCAL_LLM_MODEL=qwen2.5:7b
+    LM Studio: LOCAL_LLM_BASE=http://127.0.0.1:1234/v1   LOCAL_LLM_MODEL=qwen2.5-7b-instruct
+    没配 LOCAL_LLM_BASE 就直接报错（不做静默降级，否则会让人误以为在用云端）。
+    """
+    base = env.get("LOCAL_LLM_BASE")
+    if not base:
+        raise RuntimeError("没有配置 LOCAL_LLM_BASE（见 rag-demo/README.md 第五节）")
+    model = env.get("LOCAL_LLM_MODEL") or "qwen2.5:7b"
+    key = env.get("LOCAL_LLM_KEY") or "local"
+    return _chat(base, key, model, prompt, timeout)
+
+
+def answer(prompt: str, env: dict) -> tuple[str, str]:
+    """先云端，失败再本地兜底。返回值带「谁答的」，避免把本地答案当成云端结果。"""
+    try:
+        return call_llm(prompt, env), "deepseek"
+    except Exception as e_cloud:
+        try:
+            return call_local(prompt, env), "local"
+        except Exception as e_local:
+            raise RuntimeError(f"云端失败：{e_cloud}；本地也未配置/不可用：{e_local}") from e_local
 
 
 def main():
@@ -218,8 +261,10 @@ def main():
 
     print("\n=== 生成回答 ===")
     try:
-        ans = call_llm(build_prompt(args.question, hits), load_env())
-        print(ans)
+        text, engine = answer(build_prompt(args.question, hits), load_env())
+        if engine == "local":
+            print("[注意] 云端不可用，本条由本地模型生成，质量可能下降")
+        print(text)
     except urllib.error.URLError as e:
         print(f"[模型不可用] {e}；检索结果仍然有效（这就是检索与生成分离的意义）")
     except Exception as e:
