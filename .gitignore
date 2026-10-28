@@ -44,3 +44,9 @@ REWORK.md
 
 # ===== 开发截图（占 35MB，不进仓库）=====
 static/shots/
+
+# RAG demo 产物（索引与日志不入库）
+rag-demo/rag.db
+rag-demo/_serve.log
+rag-demo/_serve.err
+rag-demo/__pycache__/

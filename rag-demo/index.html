@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>热点知识库 · 检索 + AI 总结</title>
+<style>
+  :root { --line:#e5e7eb; --muted:#6b7280; --ink:#111827; --bg:#fafafa; --accent:#2563eb; }
+  * { box-sizing:border-box; }
+  body { margin:0; font:15px/1.65 -apple-system,"Segoe UI","Microsoft YaHei",sans-serif; color:var(--ink); background:var(--bg); }
+  .wrap { max-width:980px; margin:0 auto; padding:36px 20px 80px; }
+  h1 { font-size:22px; margin:0 0 6px; }
+  .sub { color:var(--muted); font-size:13px; margin-bottom:22px; }
+  .bar { display:flex; gap:10px; flex-wrap:wrap; }
+  input[type=text] { flex:1 1 420px; padding:12px 14px; border:1px solid var(--line); border-radius:10px; font-size:15px; background:#fff; }
+  input[type=text]:focus { outline:2px solid #bfdbfe; border-color:var(--accent); }
+  select { padding:12px 10px; border:1px solid var(--line); border-radius:10px; background:#fff; }
+  button { padding:12px 18px; border:0; border-radius:10px; background:var(--accent); color:#fff; font-size:15px; cursor:pointer; }
+  button.ghost { background:#fff; color:var(--ink); border:1px solid var(--line); }
+  button:disabled { opacity:.55; cursor:default; }
+  .tabs { margin:16px 0 4px; display:flex; gap:8px; flex-wrap:wrap; }
+  .tabs span { font-size:13px; padding:5px 10px; border:1px solid var(--line); border-radius:999px; background:#fff; cursor:pointer; }
+  .tabs span.on { border-color:var(--accent); color:var(--accent); }
+  .meta { color:var(--muted); font-size:13px; margin:14px 0; }
+  .card { background:#fff; border:1px solid var(--line); border-radius:12px; padding:14px 16px; margin-bottom:10px; }
+  .card h3 { font-size:15px; margin:0 0 6px; font-weight:600; }
+  .card .ex { color:#374151; font-size:14px; }
+  .card .foot { color:var(--muted); font-size:12px; margin-top:8px; display:flex; gap:12px; flex-wrap:wrap; }
+  .tag { font-size:11px; padding:1px 7px; border-radius:999px; background:#f3f4f6; color:#374151; }
+  .tag.deep { background:#eff6ff; color:#1d4ed8; }
+  .answer { background:#fff; border:1px solid #dbeafe; border-left:4px solid var(--accent); border-radius:12px; padding:16px; margin:18px 0; white-space:pre-wrap; }
+  .err { color:#b91c1c; font-size:13px; }
+  .hint { color:var(--muted); font-size:12.5px; margin-top:26px; line-height:1.8; }
+  a { color:var(--accent); text-decoration:none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>热点知识库 · 检索 + AI 总结</h1>
+  <div class="sub">语料：热点采集网络 5 天产出的 27,992 条记录（含 304 条结构化线索卡）｜ 检索离线可跑，模型只负责组织语言</div>
+
+  <div class="bar">
+    <input id="q" type="text" placeholder="例如：锂电池出海有没有机会 / 储能项目招标 / 美妆榜单新品" autocomplete="off">
+    <select id="kind">
+      <option value="">全部类型</option>
+      <option value="deep">结构化线索卡</option>
+      <option value="news">原文摘要</option>
+      <option value="coarse">粗筛命中</option>
+    </select>
+    <button id="go">检索</button>
+    <button id="ai" class="ghost">让 AI 总结</button>
+  </div>
+
+  <div class="tabs" id="samples"></div>
+  <div class="meta" id="meta"></div>
+  <div id="answer"></div>
+  <div id="list"></div>
+
+  <div class="hint">
+    说明：检索用 SQLite FTS5 + 中文二元组切分（离线、可解释、零依赖）；「让 AI 总结」才会调用模型，
+    且要求每条结论标注来源编号、资料不足时必须说不足。模型不可用时检索结果照常返回。
+  </div>
+</div>
+
+<script>
+const samples = ["锂电池出海有没有可做的机会？", "储能项目招标有什么信号", "美妆个护榜单新品", "出口退税下调对哪些品类有影响"];
+const $ = (id) => document.getElementById(id);
+const samplesBox = $("samples");
+samples.forEach((s) => {
+  const el = document.createElement("span");
+  el.textContent = s;
+  el.onclick = () => { $("q").value = s; run(false); };
+  samplesBox.appendChild(el);
+});
+
+function esc(s) { return (s || "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+
+async function run(withAnswer) {
+  const q = $("q").value.trim();
+  if (!q) return;
+  const kind = $("kind").value;
+  $("answer").innerHTML = "";
+  $("meta").textContent = withAnswer ? "检索 + 生成中…" : "检索中…";
+  $("go").disabled = $("ai").disabled = true;
+  try {
+    const url = `/api/${withAnswer ? "answer" : "search"}?q=${encodeURIComponent(q)}&k=6${kind ? "&kind=" + kind : ""}`;
+    const r = await fetch(url);
+    const d = await r.json();
+    if (d.hits) render(d.hits, d.ms, d.q);
+    if (withAnswer) {
+      $("answer").innerHTML = d.ok
+        ? `<div class="answer">${esc(d.answer)}</div>`
+        : `<div class="answer err">${esc(d.error)}<br><span style="color:#6b7280">下面仍是你命中的资料。</span></div>`;
+    }
+    if (!d.hits || !d.hits.length) $("meta").textContent = "没有命中资料";
+  } catch (e) {
+    $("meta").textContent = "请求失败：" + e;
+  } finally {
+    $("go").disabled = $("ai").disabled = false;
+  }
+}
+
+function render(hits, ms, q) {
+  $("meta").textContent = `命中 ${hits.length} 条` + (ms != null ? `，检索耗时 ${ms} ms` : "");
+  $("list").innerHTML = hits.map((h) => `
+    <div class="card">
+      <h3>${h.n}. ${esc(h.title)}</h3>
+      <div class="ex">${esc(h.excerpt)}</div>
+      <div class="foot">
+        <span class="tag ${h.kind}">${esc(h.kind)}</span>
+        <span>${esc(h.source)}</span>
+        <span>${esc(h.published_at)}</span>
+        <span>score ${h.score}</span>
+        ${h.url ? `<a href="${esc(h.url)}" target="_blank" rel="noopener">原文</a>` : ""}
+      </div>
+    </div>`).join("");
+}
+
+$("go").onclick = () => run(false);
+$("ai").onclick = () => run(true);
+$("q").addEventListener("keydown", (e) => { if (e.key === "Enter") run(false); });
+
+// 支持深链接：/?q=锂电池出海  便于演示与分享
+const initQ = new URLSearchParams(location.search).get("q");
+if (initQ) { $("q").value = initQ; run(false); }
+</script>
+</body>
+</html>
