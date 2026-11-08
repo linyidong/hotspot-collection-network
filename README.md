@@ -1,6 +1,6 @@
 # Hotspot Collection Network（热点采集网络）
 
-单人本机的跨境热点采集与线索加工工具。本仓库当前为 **T2 项目骨架**：一条命令起服务，接上配置层与 SQLite 八张表，提供健康检查接口。采集（T3）、LLM 加工（T4/T5）、大屏（T7）尚未实现。
+单人本机的跨境热点采集与线索加工工具（商机雷达）。**当前状态（2026-11-09）**：T0–T12 主体已实现，并在 macOS 恢复运行；20 个数据源、两级 LLM 漏斗、12 条校验、3D 地球大屏、详情/备忘/收藏/设置/成本页均已上线；指标卡（金价/油价/汇率）已补齐。已知缺口与下一步见 [docs/项目现状盘点-20261109.md](docs/项目现状盘点-20261109.md)。
 
 ## 一、安装
 
@@ -64,12 +64,25 @@ python run.py
 ## 目录结构（当前已实现）
 
 ```
-run.py              # 唯一入口：检查 → 建表 → 起服务
-app/config.py       # 配置层：.env + data/config.json + 默认值
-app/db.py           # SQLite：WAL + 幂等建 8 张表
-app/api/routes.py   # /api/health + 静态首页
-static/index.html   # 深色占位页
-data/app.db         # 数据库（首次启动自动生成，不进 git）
+run.py                  # 唯一入口：检查 → 建库 → 起桥/调度/服务
+app/
+  api/routes.py         # 全部 /api 路由
+  config.py             # .env + data/config.json + 默认值
+  db.py                 # SQLite：WAL + 幂等建 9 张表
+  pipeline.py           # 采集→去重→粗筛→深加工→校验 单轮编排
+  validate.py           # 12 条反废话校验（r1–r12）
+  market.py             # 行情指标（金价/油价/汇率，F-015）
+  llm.py budget.py      # 模型调用/记账、预算熔断
+  scheduler.py          # 6 轮定时 + 补跑 + 心跳 + 备份/清理/榜单
+  sources/              # 20 个源适配器 + 注册表 + 并行采集
+static/
+  index.html ...        # 大屏 / 详情 / 备忘收藏 / 设置 / 成本日志
+  js/app.js js/earth.js # 面板逻辑 / three.js 3D 地球
+  vendor/               # three.js 与贴图（离线）
+prompts/                # coarse.md / deep.md（带版本号）
+tools/                  # 基准题、验收、调度审计、浏览器验收
+third_party/china-finance-rss  # MIT，本地 RSS 桥
+data/app.db             # 数据库（自动生成，不进 git）
 ```
 
 ## 一键启动（Windows）
@@ -115,6 +128,9 @@ brew install --cask google-chrome
 
 **从 Windows 迁到 Mac 时注意**：只拷代码 + `data/app.db` + `.env`，**不要拷 `.venv` 和 `data/logs`**
 （`.venv` 是平台相关的，拷过去会不可用；旧日志会混进新环境造成误读）。首次运行会自动重建环境。
+
+> **本机环境（2026-11-09 恢复）**：Python 3.12 由用户级 micromamba 安装在 `~/.local/share/hcn/py312`，
+> 当前 `.venv` 基于它，不需要管理员权限；不要删除该目录，否则要重新创建 venv。
 
 把项目放到任意目录后，给脚本执行权限（只需一次）：
 
@@ -185,6 +201,7 @@ cp .env.example .env
 
 | 面板 | 内容 |
 |---|---|
+| **指标卡** | 大屏右上角：金价（美元/盎司）、油价（WTI，美元/桶）、汇率（USD/CNY）；失败显示「暂不可用」，后端 60 秒缓存 |
 | 新增 / 更早 | 时间窗内外的线索卡（按 S1–S4 阶段着色） |
 | A·B 级线索 | 置信度 A/B 的线索 |
 | S1 选品 / S3 交易结构 | 按阶段拆分 |
@@ -201,7 +218,7 @@ cp .env.example .env
    - 在境内 → 「切到境内模式」（国内源直连、Google/国外走代理）
    - 在境外 → 「切到境外模式」（Google/国外直连、国内走代理）
    - 不确定 → 「按当前网络自动匹配」
-3. **体检**：设置页「体检全部源」→ 18/18 就绪；有失败的直连源，点「把失败的直连源切到代理」
+3. **体检**：设置页「体检全部源」→ 20/20 就绪；有失败的直连源，点「把失败的直连源切到代理」
 
 > 只影响直连型源（见闻 3 频道 / 新浪 / Google ×5 / 微博）；桥接源与 Amazon 榜单跟随系统网络（代理软件开规则模式即可）。
 

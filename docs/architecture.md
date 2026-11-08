@@ -48,6 +48,11 @@
 
 ## 2. 目录结构
 
+> **2026-11-09 更正**：下面的目录树是 2026-10-19 的设计稿，**实际代码已演化为扁平模块**，与此处不完全一致。
+> 准确结构以 `git ls-files` 为准：`app/pipeline.py`、`app/llm.py`、`app/validate.py`、`app/market.py`、
+> `app/budget.py`、`app/dedup_topic.py`；前端为 `static/js/{app,earth}.js` + `static/vendor/three.min.js`；
+> 没有 `app/pipeline/`、`app/llm/`、`app/cost.py`、`app/sources/market.py`、`static/pages/`、ECharts。
+
 ```
 hotspot-network/
 ├── run.py                     # 唯一入口：起子进程 + 调度 + API
@@ -132,16 +137,10 @@ is_economic=true 且 potential≥阈值 (≈40-60)
 
 ### 3.3 校验层是「反废话闸」，独立于模型
 
-模型输出后，`pipeline/validate.py` 逐条检查：
-
-| 规则 | 不通过时 |
-|---|---|
-| 必需字段齐全（fact / opportunity_type / who_lacks_what / next_action / verifiable_data） | rejected |
-| `opportunity_type` ∈ 6 类枚举 | rejected |
-| `next_action.action` 含动词，且不在禁用词表（关注/留意/研究/重视/了解/把握） | rejected |
-| `next_action` 必须包含「目标对象」（查什么/联系谁） | rejected |
-| `verifiable_data` 至少 1 条，且不是「相关数据」这种空话 | rejected |
-| `fact` 不得以「据悉/业内人士称/有消息称」开头 | rejected |
+模型输出后，`app/validate.py` 逐条检查。**规则以 PRD `F-006` 为准（当前 12 条，r1–r12），这里不再重复列，避免两处口径漂移。**
+12 条包括：字段齐全、stage ∈ S1–S4、anchor 非空、verify_plan 恰好 3 条、money.form 非空、
+next_action 不得只查资料/只关注、fact 禁传闻词、S3 数值门槛、反推测、能力闸（r11）、行业枚举（r12），
+以及 `opportunity_type=none` 的「认输」分支（记 `no_playbook`，不算失败）。
 
 **这是硬闸：不通过就不进主区。** 宁可少一条，也不让废话混进去。
 
