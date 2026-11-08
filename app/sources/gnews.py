@@ -41,7 +41,8 @@ class GoogleNewsSource(BaseSource):
         if base not in queries:
             queries = [base] + queries
         feed = None
-        _btimeout = httpx.Timeout(self.timeout, connect=8.0)
+        # 单源总超时 8s：Google/必应不可达时，重试也不能把整轮采集拖到 90s 以上
+        _btimeout = httpx.Timeout(8.0)
         with httpx.Client(timeout=_btimeout, proxy=self.proxy_url,
                           follow_redirects=True) as client:
             for q in queries[:2]:
@@ -97,7 +98,8 @@ class GoogleNewsSource(BaseSource):
         raw = None
         last_err = None
         # connect 单独短超时：坏网络下最多 8s/次，避免把整轮采集拖到 90s+
-        _timeout = httpx.Timeout(self.timeout, connect=8.0)
+        # 单源总超时 8s（含 TLS/读取）；正常 RSS 通常 <1s，失败时快速降级
+        _timeout = httpx.Timeout(8.0)
         with httpx.Client(timeout=_timeout, proxy=self.proxy_url,
                           follow_redirects=True) as client:
             for attempt in range(2):

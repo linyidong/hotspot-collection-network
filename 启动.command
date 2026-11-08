@@ -53,34 +53,30 @@ if lsof -nP -iTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1; then
 fi
 
 # ---------- 4. 准备 Python 与依赖 ----------
-PY=$(command -v python3 || true)
-if [ -z "$PY" ]; then
-  echo "未找到 python3。请先安装 Python 3.11+："
-  echo "  brew install python@3.12   或   https://www.python.org/downloads/macos/"
-  read -r -p "按回车退出…" _
-  exit 1
-fi
-echo "Python: $("$PY" --version 2>&1)"
-
-# 关键：系统 python3 必须 >= 3.11（低于此版本 run.py 会直接退出）
-if ! "$PY" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)' 2>/dev/null; then
-  echo "错误：python3 版本过低（$("$PY" --version 2>&1)），需要 3.11+。"
-  echo "怎么办：brew install python@3.12  然后重新运行本脚本。"
-  read -r -p "按回车退出…" _
-  exit 1
-fi
-
-# venv 可能来自别的机器/别的 Python（例如从 Windows 拷过来），不可用时自动重建
-need_venv=1
-if [ -x .venv/bin/python ]; then
-  if .venv/bin/python -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)' 2>/dev/null; then
-    need_venv=0
-  else
-    echo "检测到 .venv 不可用（可能是从别的系统拷来的），自动重建…"
+# 优先复用可用的 .venv：本机系统 python3 可能是 3.9，低于项目要求，但 .venv 已经是 3.11+ 就不该拦截
+if [ -x .venv/bin/python ] && .venv/bin/python -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)' 2>/dev/null; then
+  echo "复用已有 .venv：$(.venv/bin/python --version 2>&1)"
+else
+  PY=""
+  for c in "${HCN_PYTHON:-}" "$HOME/.local/share/hcn/py312/bin/python" python3.12 python3.13 python3.11 python3; do
+    [ -n "$c" ] || continue
+    if command -v "$c" >/dev/null 2>&1 && "$c" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)' 2>/dev/null; then
+      PY=$(command -v "$c")
+      break
+    fi
+  done
+  if [ -z "$PY" ]; then
+    echo "错误：找不到 Python 3.11+（系统 python3 版本过低或未安装）。"
+    echo "怎么办：安装 Python 3.12+ 后重试；本机已有用户级 3.12 时可直接运行："
+    echo "  HCN_PYTHON=$HOME/.local/share/hcn/py312/bin/python ./启动.command"
+    read -r -p "按回车退出…" _
+    exit 1
+  fi
+  echo "Python: $("$PY" --version 2>&1)"
+  if [ -d .venv ]; then
+    echo "检测到 .venv 不可用（可能来自别的系统/版本），自动重建…"
     rm -rf .venv
   fi
-fi
-if [ "$need_venv" = "1" ]; then
   echo "创建虚拟环境 .venv …"
   "$PY" -m venv .venv
 fi
