@@ -221,6 +221,8 @@ def deep_one(item, coarse_res: dict, batch_id: int, model: str = None) -> dict:
     """深加工单条：调 deep 模型 → 容错解析 → 12 条校验（含 r11 能力闸）。
     model 为空时用常量默认值（界面设置可覆盖）。
     失败重试 ≤2 次（每次调用即记账）；校验拒绝不算失败，不重试。
+    cost 返回本次所有尝试的累计（含「API 成功但 JSON 解析失败」的那次），
+    与 llm_calls 本次新增记账一致，保证批次对账不漏算。
     返回 {'status': ok|rejected|failed, 'card':..., 'reasons': [...], 'cost': float}。"""
     user = (
         "# 新闻\n"
@@ -232,26 +234,30 @@ def deep_one(item, coarse_res: dict, batch_id: int, model: str = None) -> dict:
     )
     conn = db.get_conn()
     last_err = ""
+    total_cost = 0.0
     try:
         for attempt in range(DEEP_RETRIES + 1):
             try:
-                text = chat(model or DEEP_MODEL, user, batch_id, stage="deep",
-                            system_prompt=DEEP_PROMPT, max_tokens=DEEP_MAX_TOKENS,
-                            timeout=DEEP_TIMEOUT, thinking=False, conn=conn)
+                text, call_cost, _call_id = chat(
+                    model or DEEP_MODEL, user, batch_id, stage="deep",
+                    system_prompt=DEEP_PROMPT, max_tokens=DEEP_MAX_TOKENS,
+                    timeout=DEEP_TIMEOUT, thinking=False, conn=conn,
+                    return_meta=True)
                 conn.commit()   # 调用即记账：立即持久化本次 deep 调用（含失败，chat 已写 cost=0 行）
+                total_cost += call_cost
                 card = parse_deep_json(text)
                 if card is None:
                     raise ValueError("深加工输出无法解析为 JSON")
                 ok, reasons = validate_deep_card(card)
                 return {"status": "ok" if ok else "rejected", "card": card,
-                        "reasons": reasons, "cost": _last_call_cost(conn, batch_id, "deep")}
+                        "reasons": reasons, "cost": total_cost}
             except Exception as exc:
                 conn.commit()
                 last_err = _human_last_error(exc)
                 if attempt < DEEP_RETRIES:
                     time.sleep(1.0 + attempt)
         return {"status": "failed", "card": None,
-                "reasons": [last_err], "cost": 0.0}
+                "reasons": [last_err], "cost": total_cost}
     finally:
         conn.close()
 

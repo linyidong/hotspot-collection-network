@@ -740,6 +740,12 @@ def create_app() -> FastAPI:
                     "ok": False, "error": "条目不存在，请返回大屏确认条目 ID"})
             batch_id = row["batch_id"]
             old = _deep_of(conn, item_id)
+            if old["status"] == "ok":
+                # 服务端闸：已通过校验的卡不允许重烧钱（前端不显示按钮，这里防直连 API）
+                return JSONResponse(status_code=409, content={
+                    "ok": False,
+                    "error": "该条已通过校验，无需重新加工；"
+                             "如确需重算请使用 AI 解析或联系管理员"})
         finally:
             conn.close()
 

@@ -89,9 +89,11 @@ def chat(model: str, user_prompt: str, batch_id: int,
          stage: str = "coarse", system_prompt: str = "",
          max_tokens: int = 600, timeout: float = DEFAULT_TIMEOUT,
          conn=None, thinking: bool = False, response_format=None,
-         temperature=None) -> str:
+         temperature=None, return_meta: bool = False):
     """调用一次 DeepSeek Chat 并立刻记账（llm_calls）。
-    返回模型输出文本；失败抛异常（调用记录仍在，供成本审计）。
+    默认（return_meta=False）返回模型输出文本字符串；
+    return_meta=True 时返回 (content, cost, call_id)，供调用方累计多次尝试的成本。
+    失败抛异常（调用记录仍在，供成本审计）。
     conn 复用连接时由调用方负责 commit。
 
     thinking：DeepSeek 默认开启思考模式（effort=high），粗筛这类简单分类任务
@@ -140,8 +142,10 @@ def chat(model: str, user_prompt: str, batch_id: int,
     else:
         in_price, out_price = _unit_price(model)
         cost = prompt_tok * in_price + completion_tok * out_price
-        _record(conn, batch_id, stage, model, prompt_tok, completion_tok, cost,
-                in_price, out_price, content, commit=own)
+        call_id = _record(conn, batch_id, stage, model, prompt_tok, completion_tok,
+                          cost, in_price, out_price, content, commit=own)
+        if return_meta:
+            return content, cost, call_id
         return content
     finally:
         if own:
@@ -149,8 +153,8 @@ def chat(model: str, user_prompt: str, batch_id: int,
 
 
 def _record(conn, batch_id, stage, model, pt, ct, cost, in_p, out_p, content, commit):
-    """写一条 llm_calls 调用记录。调用即记账：无论成败都落库。"""
-    conn.execute(
+    """写一条 llm_calls 调用记录。调用即记账：无论成败都落库。返回新行 id。"""
+    cur = conn.execute(
         "INSERT INTO llm_calls(batch_id, stage, provider, model, prompt_tokens, "
         "completion_tokens, unit_price_in, unit_price_out, cost, created_at) "
         "VALUES(?,?,?,?,?,?,?,?,?,?)",
@@ -158,3 +162,4 @@ def _record(conn, batch_id, stage, model, pt, ct, cost, in_p, out_p, content, co
     )
     if commit:
         conn.commit()
+    return cur.lastrowid

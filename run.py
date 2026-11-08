@@ -107,15 +107,31 @@ except OSError as e:
 
 # ===== 4. 端口占用检查（仅正式启动服务时；--fetch-once / --run-once 不占端口）=====
 if not FETCH_ONCE and not RUN_ONCE and not PLATFORM_SNAPSHOT:
+    import time as _time
     _port = settings.port
-    _sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    try:
-        _sock.bind(("127.0.0.1", _port))
-        _port_free = True
-    except OSError:
-        _port_free = False
-    finally:
-        _sock.close()
+    _port_free = False
+    for _try in range(3):  # TIME_WAIT 残留时最多重试 3 次再判定
+        _sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            if sys.platform == "win32":
+                # Windows：SO_EXCLUSIVEADDRUSE 禁止劫持重绑，保持真实占用可检测
+                try:
+                    _sock.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+                except (OSError, AttributeError):
+                    pass
+            else:
+                # macOS/Linux：SO_REUSEADDR 只放行 TIME_WAIT 残留连接；
+                # 端口上有真实监听进程时 bind 仍报 EADDRINUSE，检测能力不丢
+                _sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            _sock.bind(("127.0.0.1", _port))
+            _port_free = True
+        except OSError:
+            _port_free = False
+        finally:
+            _sock.close()
+        if _port_free:
+            break
+        _time.sleep(0.45)
     if not _port_free:
         print(f"错误：端口 {_port} 已被占用，无法启动服务。")
         print(f"怎么办：① 改端口：在 .env 中把 PORT={_port} 改成其它值（如 8001）后重试；② 或关闭占用该端口的程序。")
