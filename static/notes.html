@@ -71,6 +71,7 @@ select{background:#0b1420;color:#cdd9ee;border:1px solid rgba(120,180,255,.25);
 (function () {
   var tab = "notes";
   var stage = "", vertical = "";
+  var loadSeq = 0;   // 防止快速输入/切换时旧响应覆盖新结果
   var list = document.getElementById("list");
   var q = document.getElementById("q");
   var filters = document.getElementById("filters");
@@ -130,6 +131,7 @@ select{background:#0b1420;color:#cdd9ee;border:1px solid rgba(120,180,255,.25);
   }
 
   function load() {
+    var seq = ++loadSeq;
     list.innerHTML = '<p class="hint">加载中…</p>';
     var kw = encodeURIComponent(q.value.trim());
     var url = tab === "notes"
@@ -139,6 +141,7 @@ select{background:#0b1420;color:#cdd9ee;border:1px solid rgba(120,180,255,.25);
     fetch(url).then(function (r) {
       return r.json().then(function (j) { return {code: r.status, j: j}; });
     }).then(function (res) {
+      if (seq !== loadSeq) return;   // 已有更新的请求，丢弃旧响应
       if (res.code !== 200 || res.j.error) {
         list.innerHTML = '<p class="hint">加载失败：' + esc(res.j.error || ("HTTP " + res.code)) +
                          "（请检查筛选条件是否合法）</p>";
@@ -152,6 +155,7 @@ select{background:#0b1420;color:#cdd9ee;border:1px solid rgba(120,180,255,.25);
         document.getElementById("cntF").textContent = (res.j.favorites || []).length;
       }
     }).catch(function (e) {
+      if (seq !== loadSeq) return;
       list.innerHTML = '<p class="hint">加载失败：' + esc(e.message) + "</p>";
     });
   }
