@@ -752,6 +752,13 @@ def create_app() -> FastAPI:
         from .. import budget
         return budget.status()
 
+    @app.get("/api/market")
+    def market_quotes():
+        """行情指标（F-015）：金价 / 油价 / 汇率。接口失败也返回 200 + 中文原因，
+        由前端显示「暂不可用」，不允许让大屏崩掉。"""
+        from ..market import get_quotes
+        return get_quotes()
+
     @app.get("/api/cost")
     def cost_summary(days: int = 30):
         """成本分析：最近 days 天按日汇总 + 本月按阶段/模型汇总，本月合计与预算状态。"""

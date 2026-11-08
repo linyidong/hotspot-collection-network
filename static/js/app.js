@@ -54,6 +54,53 @@
     });
   }
 
+  // ===== F-015 行情指标卡：金价 / 油价 / 汇率 =====
+  function fmtQuote(v, digits) {
+    var n = Number(v);
+    if (!isFinite(n)) return "—";
+    var s = n.toFixed(digits);
+    var p = s.split(".");
+    p[0] = p[0].replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+    return p.join(".");
+  }
+  function renderMarket(j) {
+    var by = {};
+    ((j && j.items) || []).forEach(function (x) { by[x.key] = x; });
+    [["gold", 2], ["oil", 2], ["fx", 4]].forEach(function (pair) {
+      var el = $("mk-" + pair[0]);
+      if (!el) return;
+      var v = el.querySelector(".mk-v"), c = el.querySelector(".mk-c");
+      var it = by[pair[0]];
+      if (!j || !j.ok || !it || !it.ok || it.price == null) {
+        el.classList.add("off");
+        v.textContent = "暂不可用";
+        c.textContent = (j && j.error) ? "接口异常" : "—";
+        c.className = "mk-c";
+        el.title = (j && j.error) ? j.error : "行情暂不可用";
+        return;
+      }
+      el.classList.remove("off");
+      v.textContent = fmtQuote(it.price, pair[1]);
+      var ch = it.change_pct;
+      if (ch == null || !isFinite(Number(ch))) {
+        c.textContent = "较昨收 —";
+        c.className = "mk-c";
+      } else {
+        var n = Number(ch);
+        c.textContent = (n > 0 ? "+" : "") + n.toFixed(2) + "%";
+        c.className = "mk-c " + (n > 0 ? "up" : (n < 0 ? "down" : ""));
+      }
+      el.title = "更新 " + (j.updated_at || "—") + " · " + (j.source || "—") +
+                 (it.quote_at ? "\n行情时间 " + it.quote_at : "") +
+                 "\n单位 " + (it.unit || "—");
+    });
+  }
+  function loadMarket() {
+    return api("/api/market").then(renderMarket).catch(function (e) {
+      renderMarket({ ok: false, error: "行情加载失败：" + e.message, items: [] });
+    });
+  }
+
   async function fetchAll() {
     var tasks = [
       api("/api/health").catch(function () { return null; }),
@@ -1231,7 +1278,9 @@
     if (aid) openAnalyze(aid);
   })();
 
+  loadMarket();
   fetchAll();
   setInterval(fetchAll, 60000);
   setInterval(loadSuggestions, 60000);
+  setInterval(loadMarket, 5 * 60 * 1000);   // 行情 5 分钟刷新（后端另做 60 秒缓存）
 })();

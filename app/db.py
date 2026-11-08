@@ -121,10 +121,11 @@ def table_names(conn: sqlite3.Connection = None) -> list:
 
 
 def db_ok() -> tuple:
-    """健康检查：连接是否可用、表是否齐全（>=8）。返回 (ok: bool, tables: list)。"""
+    """健康检查：连接是否可用、表是否齐全（>=8）。返回 (ok: bool, tables: list)。
+    注意：heartbeats 上线后表数为 9，这里必须用 >=8；写死 ==8 会让健康检查误报 db.ok=false。"""
     try:
         names = table_names()
-        ok = len(names) == 8 and "batches" in names and "items" in names
+        ok = len(names) >= 8 and "batches" in names and "items" in names
         return ok, names
     except sqlite3.Error:
         return False, []

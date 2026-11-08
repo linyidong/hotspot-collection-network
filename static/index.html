@@ -130,6 +130,18 @@ main{flex:1;min-height:0;display:flex;gap:10px;padding:10px;position:relative}
 #cen{flex:1;min-width:0;display:flex;flex-direction:column;gap:6px}
 #g3d{flex:1;min-height:0;position:relative}
 #g3d canvas{display:block;width:100%;height:100%}
+/* 右上角行情指标卡（F-015：金价 / 油价 / 汇率） */
+#mkt{position:absolute;right:8px;top:8px;z-index:6;display:flex;gap:8px;pointer-events:none}
+.mk{min-width:96px;background:rgba(8,16,28,.82);border:1px solid rgba(120,180,255,.18);border-radius:6px;
+  padding:5px 9px 6px;backdrop-filter:blur(4px);pointer-events:auto}
+.mk-t{font-size:10px;color:#8fa3c4;display:flex;justify-content:space-between;gap:6px;white-space:nowrap}
+.mk-t em{font-style:normal;color:#4a5878;font-size:9px}
+.mk-v{font-size:15px;color:#eaf2ff;font-variant-numeric:tabular-nums;line-height:1.35}
+.mk-c{font-size:10px;color:#6b7a94;font-variant-numeric:tabular-nums}
+.mk-c.up{color:#2ecc8f}.mk-c.down{color:#ff8080}
+.mk.off .mk-v{font-size:11px;color:#8fa3c4}
+@media (max-width:1200px){#mkt .mk{min-width:82px}.mk-v{font-size:13px}}
+@media (max-width:1100px){#mkt{gap:4px;right:4px}.mk{min-width:0;padding:4px 6px}.mk-t em{display:none}.mk-v{font-size:12px}.mk-c{font-size:9px}}
 /* 光点悬停标签（V2：国家 · 阶段 · 潜力） */
 .g3d-label{position:absolute;z-index:5;display:none;transform:translate(-50%,-130%);pointer-events:none;white-space:nowrap;
   font-size:11px;color:#eaf2ff;background:rgba(10,18,32,.9);border:1px solid #35d0e8;border-radius:4px;padding:2px 7px;
@@ -291,6 +303,11 @@ footer b{color:#9fb4d8}
       <a class="nav" href="/static/cost.html">成本</a>
     </div>
     <div id="g3d">
+      <div id="mkt" title="行情来自公开接口，60 秒缓存">
+        <div class="mk" id="mk-gold"><div class="mk-t"><span>金价</span><em>USD/oz</em></div><div class="mk-v">—</div><div class="mk-c">—</div></div>
+        <div class="mk" id="mk-oil"><div class="mk-t"><span>油价</span><em>USD/bbl</em></div><div class="mk-v">—</div><div class="mk-c">—</div></div>
+        <div class="mk" id="mk-fx"><div class="mk-t"><span>汇率</span><em>USD/CNY</em></div><div class="mk-v">—</div><div class="mk-c">—</div></div>
+      </div>
       <div class="dgl" id="dgl">当前浏览器不支持 WebGL，无法显示 3D 地球。</div>
       <div class="ovl" id="ovl"></div>
     </div>
@@ -336,6 +353,6 @@ footer b{color:#9fb4d8}
 </div>
 <script src="./static/vendor/three.min.js?v=20261023"></script>
 <script src="./static/js/earth.js?v=20261023"></script>
-<script src="./static/js/app.js?v=20261023"></script>
+<script src="./static/js/app.js?v=20261109"></script>
 </body>
 </html>
