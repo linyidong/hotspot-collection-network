@@ -1,6 +1,6 @@
 <!DOCTYPE html>
-<!-- 模块：备忘录与收藏页。职责：列出我的备注（支持搜索）与收藏条目，点击进入详情。
-     数据来源：GET /api/notes?q= 、GET /api/favorites；零外部依赖。 -->
+<!-- 模块：备忘录与收藏页。职责：列出我的备注（支持搜索 + 阶段/行业筛选）与收藏条目（支持搜索标题/备注）。
+     数据来源：GET /api/notes?q=&stage=&vertical= 、GET /api/favorites?q=；零外部依赖。 -->
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
@@ -25,6 +25,16 @@ input[type=search]{width:100%;background:#0b1420;color:#cdd9ee;border:1px solid 
 .item .n{color:#ffd479;font-size:13px;white-space:pre-wrap;margin:4px 0}
 .item .m{font-size:11px;color:#6b7a94}
 .hint{color:#6b7a94;font-size:13px;padding:20px 0}
+.filters{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:-6px 0 14px}
+.flabel{font-size:12px;color:#8fa3c4}
+.chip{font-size:11px;padding:2px 10px;border-radius:12px;border:1px solid rgba(120,180,255,.25);
+  color:#9fb4d8;cursor:pointer;background:transparent}
+.chip.on{background:#2e8bf5;color:#fff;border-color:#2e8bf5}
+.chip.dim{cursor:default;border-style:dashed;color:#6b7a94}
+select{background:#0b1420;color:#cdd9ee;border:1px solid rgba(120,180,255,.25);
+  border-radius:6px;padding:4px 8px;font:12px inherit}
+.item .tags{margin:2px 0 4px}
+.item .tags .chip{cursor:default}
 </style>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='27' fill='%230b1a2b' stroke='%2335d0e8' stroke-width='4'/%3E%3Cpath d='M5 32h54M32 5c11 11 11 43 0 54M32 5c-11 11-11 43 0 54' stroke='%2335d0e8' stroke-width='3' fill='none'/%3E%3C/svg%3E">
 </head>
@@ -38,14 +48,33 @@ input[type=search]{width:100%;background:#0b1420;color:#cdd9ee;border:1px solid 
     <div class="tab on" data-tab="notes">备忘录 <span id="cntN"></span></div>
     <div class="tab" data-tab="fav">收藏 <span id="cntF"></span></div>
   </div>
-  <input id="q" type="search" placeholder="搜索备注内容…（仅备忘录可用）">
+  <input id="q" type="search" placeholder="搜索备注内容或标题…">
+  <div class="filters" id="filters">
+    <span class="flabel">阶段：</span>
+    <span class="chip on" data-stage="">全部</span>
+    <span class="chip" data-stage="S1">S1 选品</span>
+    <span class="chip" data-stage="S2">S2 供应链</span>
+    <span class="chip" data-stage="S3">S3 交易结构</span>
+    <span class="chip" data-stage="S4">S4 客户开发</span>
+    <span class="flabel" style="margin-left:10px">行业：</span>
+    <select id="vert">
+      <option value="">全部行业</option>
+      <option>宠物经济</option><option>银发经济</option><option>母婴</option>
+      <option>户外</option><option>家居</option><option>美妆个护</option>
+      <option>数码配件</option><option>食品饮料</option><option>汽车后市场</option>
+      <option>其他</option>
+    </select>
+  </div>
   <div id="list"><p class="hint">加载中…</p></div>
 </main>
 <script>
 (function () {
   var tab = "notes";
+  var stage = "", vertical = "";
   var list = document.getElementById("list");
   var q = document.getElementById("q");
+  var filters = document.getElementById("filters");
+  var vertSel = document.getElementById("vert");
 
   function esc(s) {
     return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) {
@@ -54,18 +83,40 @@ input[type=search]{width:100%;background:#0b1420;color:#cdd9ee;border:1px solid 
   }
   function fmt(t) { return t ? String(t).slice(0, 16) : "—"; }
 
+  function tagsHtml(r) {
+    if (r.stage || r.vertical) {
+      var h = '<div class="tags">';
+      if (r.stage) h += '<span class="chip">' + esc(r.stage) + "</span>";
+      if (r.vertical) h += '<span class="chip">' + esc(r.vertical) + "</span>";
+      return h + "</div>";
+    }
+    return '<div class="tags"><span class="chip dim">未标注</span></div>';
+  }
+
   function render(rows, isNotes) {
+    var filtered = isNotes ? !!(q.value.trim() || stage || vertical) : !!q.value.trim();
     if (!rows.length) {
-      list.innerHTML = '<p class="hint">' + (isNotes
-        ? "还没有备注。打开任意线索卡详情，写一句判断就会出现在这里。"
-        : "还没有收藏。在详情页点「☆ 收藏」即可。") + "</p>";
+      var msg;
+      if (filtered) {
+        msg = isNotes ? "没有匹配的备注：换个关键词或放宽筛选条件试试，你的备注都还在。"
+                      : "没有匹配的收藏：换个关键词试试，收藏的条目都还在。";
+      } else {
+        msg = isNotes ? "还没有备注。打开任意线索卡详情，写一句判断就会出现在这里。"
+                      : "还没有收藏。在详情页点「☆ 收藏」即可。";
+      }
+      list.innerHTML = '<p class="hint">' + msg + "</p>";
       return;
     }
     var html = "";
     rows.forEach(function (r) {
       html += '<div class="item" data-id="' + r.item_id + '">';
       html += '<div class="t">' + esc(r.title) + "</div>";
-      if (isNotes && r.content) html += '<div class="n">' + esc(r.content) + "</div>";
+      if (isNotes) {
+        html += tagsHtml(r);
+        if (r.content) html += '<div class="n">' + esc(r.content) + "</div>";
+      } else if (r.note) {
+        html += '<div class="n">备注：' + esc(r.note) + "</div>";
+      }
       html += '<div class="m">' + esc(r.source || "") + " · " + fmt(r.published_at) +
               (isNotes ? " · 更新于 " + fmt(r.updated_at) : " · 收藏于 " + fmt(r.created_at)) +
               (r.favorite ? " · ★收藏" : "") + "</div></div>";
@@ -80,12 +131,26 @@ input[type=search]{width:100%;background:#0b1420;color:#cdd9ee;border:1px solid 
 
   function load() {
     list.innerHTML = '<p class="hint">加载中…</p>';
+    var kw = encodeURIComponent(q.value.trim());
     var url = tab === "notes"
-      ? "/api/notes?limit=200&q=" + encodeURIComponent(q.value.trim())
-      : "/api/favorites?limit=200";
-    fetch(url).then(function (r) { return r.json(); }).then(function (j) {
-      if (tab === "notes") { render(j.notes || [], true); document.getElementById("cntN").textContent = (j.notes || []).length; }
-      else { render(j.favorites || [], false); document.getElementById("cntF").textContent = (j.favorites || []).length; }
+      ? "/api/notes?limit=200&q=" + kw + "&stage=" + encodeURIComponent(stage) +
+        "&vertical=" + encodeURIComponent(vertical)
+      : "/api/favorites?limit=200&q=" + kw;
+    fetch(url).then(function (r) {
+      return r.json().then(function (j) { return {code: r.status, j: j}; });
+    }).then(function (res) {
+      if (res.code !== 200 || res.j.error) {
+        list.innerHTML = '<p class="hint">加载失败：' + esc(res.j.error || ("HTTP " + res.code)) +
+                         "（请检查筛选条件是否合法）</p>";
+        return;
+      }
+      if (tab === "notes") {
+        render(res.j.notes || [], true);
+        document.getElementById("cntN").textContent = (res.j.notes || []).length;
+      } else {
+        render(res.j.favorites || [], false);
+        document.getElementById("cntF").textContent = (res.j.favorites || []).length;
+      }
     }).catch(function (e) {
       list.innerHTML = '<p class="hint">加载失败：' + esc(e.message) + "</p>";
     });
@@ -96,12 +161,24 @@ input[type=search]{width:100%;background:#0b1420;color:#cdd9ee;border:1px solid 
       Array.prototype.forEach.call(document.querySelectorAll(".tab"), function (x) { x.classList.remove("on"); });
       t.classList.add("on");
       tab = t.getAttribute("data-tab");
-      q.disabled = tab !== "notes";
+      // 两个 tab 行为一致：切换时清空搜索词，互不串数据；筛选条仅备忘录显示
+      q.value = "";
+      filters.style.display = tab === "notes" ? "flex" : "none";
+      q.placeholder = tab === "notes" ? "搜索备注内容或标题…" : "搜索标题或备注…";
       load();
     });
   });
-  q.addEventListener("input", function () { if (tab === "notes") load(); });
-  q.disabled = false;
+  Array.prototype.forEach.call(document.querySelectorAll("#filters .chip[data-stage]"), function (c) {
+    c.addEventListener("click", function () {
+      Array.prototype.forEach.call(document.querySelectorAll("#filters .chip[data-stage]"),
+        function (x) { x.classList.remove("on"); });
+      c.classList.add("on");
+      stage = c.getAttribute("data-stage");
+      load();
+    });
+  });
+  vertSel.addEventListener("change", function () { vertical = vertSel.value; load(); });
+  q.addEventListener("input", load);
   load();
 })();
 </script>
