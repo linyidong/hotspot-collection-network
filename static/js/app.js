@@ -542,22 +542,29 @@
     if (!box) return;
     if (!SOURCES || !SOURCES.length) { box.innerHTML = '<div class="srcrow dim">暂无来源数据</div>'; return; }
     box.innerHTML = SOURCES.map(function (s) {
-      var cls = s.status === "ok" ? "ok" : (s.status === "never" ? "" : "err");
+      var stale = !!s.stale;   // 快照过期：数据旧但上游没报错，用黄色 warn 与红色 err 区分（T9-A）
+      var cls = stale ? "warn" : (s.status === "ok" ? "ok" : (s.status === "never" ? "" : "err"));
       var isProxy = s.proxy_mode === "proxy";
       var region = DOMESTIC[s.id] ? "国内" : "国际";
+      // title 必须带原因：正常 / 异常：<last_error> / 快照过期：<stale_reason>，两者都有都显示
+      var bits = [];
+      if (s.status === "error") bits.push("异常：" + (s.last_error || "未知原因"));
+      else if (s.status === "never") bits.push("尚未采集");
+      else if (!stale) bits.push("正常");
+      if (stale) bits.push("快照过期：" + (s.stale_reason || "快照数据已过期"));
       return '<div class="srcrow ' + cls + '" data-sid="' + esc(s.id) + '" title="' +
-        esc(s.name) + "（" + (s.status === "ok" ? "正常" : "异常") + "）" + '">' +
+        esc(s.name) + "（" + bits.join("；") + "）" + '">' +
         '<span class="d"></span><span class="n">' + esc(s.name) + '</span>' +
         '<span class="rg">' + region + '</span>' +
         '<button class="pm' + (isProxy ? " on" : "") + '" data-pm="' +
         (isProxy ? "direct" : "proxy") + '" title="点击切换为' +
         (isProxy ? "直连" : "代理") + '">' + (isProxy ? "代理" : "直连") + "</button>" +
         (function () {
-          // 信号强度：ok 且条数充足=4 格，ok=3，异常=1，未采=0
+          // 信号强度：ok 且条数充足=4 格，ok=3，异常=1，未采=0；快照过期整条转黄
           var lv = s.status === "ok" ? ((s.last_count || 0) >= 20 ? 4 : 3)
                  : (s.status === "never" ? 0 : 1);
-          var cls = s.status === "ok" ? "ok" : (s.status === "never" ? "" : "err");
-          return '<span class="sig ' + cls + " s" + lv + '" title="信号 ' + lv +
+          var sigcls = stale ? "warn" : (s.status === "ok" ? "ok" : (s.status === "never" ? "" : "err"));
+          return '<span class="sig ' + sigcls + " s" + lv + '" title="信号 ' + lv +
             "/4 · 上次 " + (s.last_count || 0) + ' 条"><i></i><i></i><i></i><i></i></span>';
         })() + "</div>";
     }).join("");

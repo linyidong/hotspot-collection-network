@@ -85,6 +85,56 @@ def _source_status(row) -> str:
     return "never"
 
 
+SNAPSHOT_MAX_AGE_HOURS = 20  # 快照超过该小时数即视为过期（T9-A）
+
+
+def _snapshot_staleness(snap, load_error, page_key) -> dict:
+    """快照源过期判定（T9-A）：Amazon 榜单读本地快照，快照可能过期但 status 仍是 ok，
+    必须单独用 stale 字段暴露，避免「stale 假绿」（静默失败红线）。
+    输入：snap=platform.load() 结果（读取失败时为 None）、load_error=读取失败原因（中文可空）、
+         page_key=spec.path 对应的快照页键。
+    输出四字段：snapshot_ts / snapshot_age_hours（整数，无 ts 为 null）/
+         stale（bool）/ stale_reason（中文短语，不 stale 时为 null）。
+    stale 条件（满足任一）：快照读取失败、快照缺失、该页缺失、page.stale 为真、age>20 小时。
+    本函数不抛异常：读失败只标 stale，绝不让 /api/sources 返回 500。"""
+    out = {"snapshot_ts": None, "snapshot_age_hours": None,
+           "stale": False, "stale_reason": None}
+    if load_error:
+        out["stale"] = True
+        out["stale_reason"] = "快照文件读取失败：" + str(load_error)
+        return out
+    reasons = []
+    snap = snap or {}
+    ts = snap.get("ts")
+    out["snapshot_ts"] = ts
+    if not ts:
+        reasons.append("快照缺失")
+    else:
+        age = None
+        for parser in (lambda v: datetime.strptime(v, "%Y-%m-%d %H:%M:%S"),
+                       lambda v: datetime.fromisoformat(str(v))):
+            try:
+                age = int((datetime.now() - parser(str(ts))).total_seconds() // 3600)
+                break
+            except (ValueError, TypeError):
+                continue
+        out["snapshot_age_hours"] = age
+        if age is not None and age > SNAPSHOT_MAX_AGE_HOURS:
+            reasons.append("快照已过期 {} 小时".format(age))
+    page = (snap.get("pages") or {}).get(page_key)
+    if page is None:
+        if ts:
+            reasons.append("快照中缺少该榜单页")
+    elif page.get("stale"):
+        fetched = page.get("fetched_at")
+        reasons.append("该榜单页抓取失败（沿用 {} 旧数据）".format(fetched)
+                       if fetched else "该榜单页抓取失败（沿用旧数据）")
+    if reasons:
+        out["stale"] = True
+        out["stale_reason"] = "；".join(reasons)
+    return out
+
+
 def _load_sources() -> list:
     """8 源全量（registry 元数据 + 数据库开关/状态）。"""
     conn = db.get_conn()
@@ -94,10 +144,18 @@ def _load_sources() -> list:
             "last_ok_at, last_error, last_count FROM sources").fetchall()}
     finally:
         conn.close()
+    # 快照源（Amazon 榜单）：整体只读一次快照，读失败不抛 500，改标 stale（T9-A）
+    snap, snap_err = None, None
+    if any(getattr(spec, "type", "") == "snapshot" for spec in SOURCES):
+        try:
+            from .. import platform as _platform
+            snap = _platform.load()
+        except Exception as e:
+            snap_err = str(e) or e.__class__.__name__
     out = []
     for spec in SOURCES:
         row = rows.get(spec.name)
-        out.append({
+        d = {
             "id": spec.id,
             "name": spec.name,
             "type": spec.type,
@@ -111,7 +169,10 @@ def _load_sources() -> list:
             "last_error": row["last_error"] if row else None,
             "last_count": row["last_count"] if row else 0,
             "status": _source_status(row) if row else "never",
-        })
+        }
+        if getattr(spec, "type", "") == "snapshot":
+            d.update(_snapshot_staleness(snap, snap_err, spec.path))
+        out.append(d)
     return out
 
 

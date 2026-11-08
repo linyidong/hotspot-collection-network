@@ -28,7 +28,8 @@ button.ghost{background:rgba(120,180,255,.15);color:#cfe3ff;border:1px solid rgb
 .bar{position:fixed;left:0;right:0;bottom:0;background:#0a1220;border-top:1px solid rgba(120,180,255,.2);
   padding:12px 22px;display:flex;align-items:center;gap:14px}
 #msg{font-size:13px}
-.ok{color:#2ecc8f}.bad{color:#ff8080}
+.ok{color:#2ecc8f}.bad{color:#ff8080}.warn{color:#f5a623}
+.srcnote{font-size:11px;line-height:1.5;margin-top:2px;word-break:break-all}
 .switch{display:inline-flex;align-items:center;gap:6px;cursor:pointer}
 </style>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='27' fill='%230b1a2b' stroke='%2335d0e8' stroke-width='4'/%3E%3Cpath d='M5 32h54M32 5c11 11 11 43 0 54M32 5c-11 11-11 43 0 54' stroke='%2335d0e8' stroke-width='3' fill='none'/%3E%3C/svg%3E">
@@ -191,10 +192,16 @@ button.ghost{background:rgba(120,180,255,.15);color:#cfe3ff;border:1px solid rgb
     SRCS = list;
     $("srcBody").innerHTML = list.map(function (s, i) {
       var isProxy = s.proxy_mode === "proxy";
+      var stale = !!s.stale;   // 快照过期与上游失败分开显示：黄=数据旧，红=抓取失败（T9-A）
+      var st = stale ? '<span class="warn">● 快照过期</span>'
+           : (s.status === "ok" ? '<span class="ok">● 正常</span>' : '<span class="bad">● 异常</span>');
+      var note = "";
+      if (s.last_error) note += '<div class="srcnote bad">异常：' + esc(s.last_error) + '</div>';
+      if (stale) note += '<div class="srcnote warn">快照过期：' + esc(s.stale_reason || "快照数据已过期") + '</div>';
       return '<tr data-id="' + esc(s.id) + '">' +
         '<td><input type="checkbox" class="en" ' + (s.enabled ? "checked" : "") + '></td>' +
-        '<td>' + esc(s.name) + '</td>' +
-        '<td>' + (s.status === "ok" ? '<span class="ok">● 正常</span>' : '<span class="bad">● 异常</span>') + '</td>' +
+        '<td>' + esc(s.name) + note + '</td>' +
+        '<td>' + st + '</td>' +
         '<td>' + (s.last_count || 0) + '</td>' +
         '<td><select class="pm"><option value="direct"' + (!isProxy ? " selected" : "") +
         '>直连</option><option value="proxy"' + (isProxy ? " selected" : "") + '>代理</option></select></td>' +
