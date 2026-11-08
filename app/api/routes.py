@@ -88,13 +88,32 @@ def _source_status(row) -> str:
 SNAPSHOT_MAX_AGE_HOURS = 20  # 快照超过该小时数即视为过期（T9-A）
 
 
+def _snap_age_hours(value) -> int:
+    """时间戳距今整数小时；非法/缺失返回 None（T9-B，不抛异常）。"""
+    if not value:
+        return None
+    dt = None
+    for parser in (lambda v: datetime.strptime(v, "%Y-%m-%d %H:%M:%S"),
+                   lambda v: datetime.fromisoformat(str(v))):
+        try:
+            dt = parser(str(value))
+            break
+        except (ValueError, TypeError):
+            continue
+    if dt is None:
+        return None
+    return int((datetime.now() - dt).total_seconds() // 3600)
+
+
 def _snapshot_staleness(snap, load_error, page_key) -> dict:
-    """快照源过期判定（T9-A）：Amazon 榜单读本地快照，快照可能过期但 status 仍是 ok，
+    """快照源过期判定（T9-A/T9-B）：Amazon 榜单读本地快照，快照可能过期但 status 仍是 ok，
     必须单独用 stale 字段暴露，避免「stale 假绿」（静默失败红线）。
     输入：snap=platform.load() 结果（读取失败时为 None）、load_error=读取失败原因（中文可空）、
          page_key=spec.path 对应的快照页键。
-    输出四字段：snapshot_ts / snapshot_age_hours（整数，无 ts 为 null）/
+    输出四字段：snapshot_ts / snapshot_age_hours（整数，无可用时间戳为 null）/
          stale（bool）/ stale_reason（中文短语，不 stale 时为 null）。
+    T9-B：age 优先按「该页 stale 时的 page.fetched_at」计算（真实数据年龄），
+         没有 fetched_at 再退回顶层 ts；否则历史 ts 被错误重写时会显示假新鲜。
     stale 条件（满足任一）：快照读取失败、快照缺失、该页缺失、page.stale 为真、age>20 小时。
     本函数不抛异常：读失败只标 stale，绝不让 /api/sources 返回 500。"""
     out = {"snapshot_ts": None, "snapshot_age_hours": None,
@@ -107,25 +126,23 @@ def _snapshot_staleness(snap, load_error, page_key) -> dict:
     snap = snap or {}
     ts = snap.get("ts")
     out["snapshot_ts"] = ts
+    page = (snap.get("pages") or {}).get(page_key)
+    page_stale = bool(isinstance(page, dict) and page.get("stale"))
+    # 年龄基准：stale 页优先用其 fetched_at（真实数据时间），否则退回顶层 ts（T9-B）
+    age = None
+    if page_stale:
+        age = _snap_age_hours(page.get("fetched_at"))
+    if age is None:
+        age = _snap_age_hours(ts)
+    out["snapshot_age_hours"] = age
     if not ts:
         reasons.append("快照缺失")
-    else:
-        age = None
-        for parser in (lambda v: datetime.strptime(v, "%Y-%m-%d %H:%M:%S"),
-                       lambda v: datetime.fromisoformat(str(v))):
-            try:
-                age = int((datetime.now() - parser(str(ts))).total_seconds() // 3600)
-                break
-            except (ValueError, TypeError):
-                continue
-        out["snapshot_age_hours"] = age
-        if age is not None and age > SNAPSHOT_MAX_AGE_HOURS:
-            reasons.append("快照已过期 {} 小时".format(age))
-    page = (snap.get("pages") or {}).get(page_key)
+    if age is not None and age > SNAPSHOT_MAX_AGE_HOURS:
+        reasons.append("快照已过期 {} 小时".format(age))
     if page is None:
         if ts:
             reasons.append("快照中缺少该榜单页")
-    elif page.get("stale"):
+    elif page_stale:
         fetched = page.get("fetched_at")
         reasons.append("该榜单页抓取失败（沿用 {} 旧数据）".format(fetched)
                        if fetched else "该榜单页抓取失败（沿用旧数据）")

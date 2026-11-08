@@ -116,14 +116,34 @@ def _fetch_dom(url: str, wait_ms: int = 12000) -> str:
     return dom
 
 
+def _parse_ts(v):
+    """解析快照时间戳（T9-B）；非法/缺失返回 None，不抛异常。"""
+    if not v:
+        return None
+    try:
+        return datetime.strptime(str(v), "%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        pass
+    try:
+        return datetime.fromisoformat(str(v))
+    except (ValueError, TypeError):
+        return None
+
+
 def refresh(pages: dict, per_page: int = 20) -> dict:
     """刷新榜单快照。pages: {page_key: (label, url)}；返回快照 dict。
 
     抓取失败的页面会保留「上一份快照」里的数据（标记 stale），避免一次反爬就把全部榜单清空。
+    T9-B：顶层 ts 表示「数据的年龄」，只在至少一页抓取成功时才写当前时间；
+    全部失败时保留旧 ts（旧 ts 也非法则取失败页最大 fetched_at），否则 is_fresh
+    与 /api/sources 会把旧数据误判成新鲜（stale 假绿根因）。
+    attempted_at 记录本次尝试时间（无论成败），不得替代 ts。
     """
     prev = load()
     prev_pages = prev.get("pages") or {}
-    snap = {"ts": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "pages": {}, "errors": {}}
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    snap = {"ts": now_str, "pages": {}, "errors": {}, "attempted_at": now_str}
+    ok_count = 0
     for key, (label, url) in pages.items():
         try:
             dom = _fetch_dom(url)
@@ -143,12 +163,25 @@ def refresh(pages: dict, per_page: int = 20) -> dict:
             if not items:
                 raise RuntimeError("未解析到商品（页面可能改版）")
             snap["pages"][key] = {"label": label, "url": url, "items": items}
+            ok_count += 1
         except Exception as exc:                 # 单页失败：保留旧数据，只记错误
             snap["errors"][key] = f"{type(exc).__name__}: {exc}"
             old_page = prev_pages.get(key)
             if old_page and old_page.get("items"):
-                snap["pages"][key] = dict(old_page, stale=True,
-                                          fetched_at=prev.get("ts") or "")
+                snap["pages"][key] = dict(
+                    old_page, stale=True,
+                    # 保留该页真实的抓取时间；只有旧页没有 fetched_at 时才退回顶层 ts，
+                    # 避免部分成功把 ts 刷新后，失败页的真实年龄被覆盖
+                    fetched_at=old_page.get("fetched_at") or prev.get("ts") or "")
+    if ok_count == 0:
+        # 全部页失败：数据没有变新，ts 不许写成当前时间（T9-B 根因修复）
+        if _parse_ts(prev.get("ts")) is not None:
+            snap["ts"] = prev["ts"]
+        else:
+            ages = [_parse_ts(p.get("fetched_at")) for p in snap["pages"].values()]
+            ages = [a for a in ages if a is not None]
+            snap["ts"] = (max(ages).strftime("%Y-%m-%d %H:%M:%S")
+                          if ages else None)
     SNAPSHOT_PATH.parent.mkdir(parents=True, exist_ok=True)
     SNAPSHOT_PATH.write_text(json.dumps(snap, ensure_ascii=False, indent=2), encoding="utf-8")
     return snap
@@ -165,13 +198,15 @@ def load() -> dict:
 
 
 def is_fresh(max_hours: int = 24) -> bool:
-    """快照是否在 max_hours 内。"""
+    """快照是否新鲜（T9-B 收紧）：顶层 ts 在 max_hours 内，且 pages 非空、
+    没有任何一页 stale=True，才算新鲜。否则启动/每日任务会误判「还新鲜」跳过重试。"""
     snap = load()
-    ts = snap.get("ts")
-    if not ts:
+    pages = snap.get("pages") or {}
+    if not pages:
         return False
-    try:
-        dt = datetime.strptime(ts, "%Y-%m-%d %H:%M:%S")
-    except ValueError:
+    dt = _parse_ts(snap.get("ts"))
+    if dt is None:
+        return False
+    if any(p.get("stale") for p in pages.values() if isinstance(p, dict)):
         return False
     return (datetime.now() - dt).total_seconds() < max_hours * 3600
