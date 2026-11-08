@@ -31,6 +31,7 @@ textarea{width:100%;min-height:90px;background:#0b1420;color:#cdd9ee;border:1px 
 button{background:rgba(120,180,255,.15);color:#cfe3ff;border:1px solid rgba(120,180,255,.3);
   border-radius:5px;padding:5px 14px;cursor:pointer;font-size:12px}
 button.on{background:#2e8bf5;color:#fff;border-color:#2e8bf5}
+button[disabled]{opacity:.55;cursor:default}
 .hint{font-size:11px;color:#6b7a94}
 .err{color:#ff8080;font-size:13px}
 .hidden{display:none}
@@ -68,16 +69,49 @@ button.on{background:#2e8bf5;color:#fff;border-color:#2e8bf5}
     html += '<div class="meta">' + esc(it.source || "未知来源") + " · " + fmt(it.published_at) +
             " · #" + it.id + "</div>";
     html += '<div class="title">' + esc(it.title) + "</div>";
+    var deepLine;
+    if (d.deep_status) {
+      deepLine = "加工模型：" + esc(d.model || "—") +
+        " · 本条花费：¥" + Number(d.cost || 0).toFixed(4) +
+        " · 加工时间：" + fmt(d.analyzed_at);
+      if (d.deep_status !== "ok") {
+        deepLine += ' · <span class="err">' +
+          (d.deep_status === "rejected" ? "校验未通过" : "加工失败") + "</span>";
+      }
+    } else {
+      deepLine = "未深加工";
+    }
+    html += '<div class="meta">' + deepLine + "</div>";
     html += '<div class="src">原文：<a href="' + esc(it.url || "#") + '" target="_blank" rel="noopener">' +
             esc(it.url || "（无链接）") + "</a></div>";
 
-    if (!card.stage && !card.fact) {
-      html += '<div class="panel"><h2>线索卡</h2><p class="hint">该条目尚未深加工（可能是粗筛未通过、重复条目，或超出本轮限额）。</p>';
+    var hasCard = !!(card.stage || card.fact);
+    if (d.deep_status === "rejected" || d.deep_status === "failed") {
+      html += '<div class="panel"><h2>深加工状态</h2>';
+      html += '<p class="err">' + (d.deep_status === "rejected"
+              ? "校验未通过（该卡不会进入大屏），原因：" : "深加工失败，原因：") + "</p>";
       if (d.reasons && d.reasons.length) {
-        html += '<p class="err">原因：' + esc(d.reasons.join("；")) + "</p>";
+        html += "<ul>";
+        d.reasons.forEach(function (r) { html += '<li class="err">' + esc(r) + "</li>"; });
+        html += "</ul>";
+      } else {
+        html += '<p class="hint">（没有记录到具体原因）</p>';
+      }
+      if (d.can_reanalyze) {
+        html += '<div class="bar"><button id="reBtn">重新加工</button>' +
+                '<span class="hint" id="reHint"></span></div>';
       }
       html += "</div>";
-    } else {
+    }
+    if (!hasCard && d.deep_status == null) {
+      html += '<div class="panel"><h2>线索卡</h2><p class="hint">该条目尚未深加工（可能是粗筛未通过、重复条目，或超出本轮限额）。</p>';
+      if (d.can_reanalyze) {
+        html += '<div class="bar"><button id="reBtn">重新加工</button>' +
+                '<span class="hint" id="reHint"></span></div>';
+      }
+      html += "</div>";
+    }
+    if (hasCard) {
       html += '<div class="panel"><h2>事实</h2><div class="big">' + esc(card.fact) + "</div>";
       html += '<div class="row" style="margin-top:10px">';
       html += '<span class="chip ' + (stage || "").toLowerCase() + '">' +
@@ -136,6 +170,8 @@ button.on{background:#2e8bf5;color:#fff;border-color:#2e8bf5}
     });
     ta.addEventListener("blur", function () { saveNote(ta.value); });
     document.getElementById("fav").addEventListener("click", toggleFav);
+    var reBtn = document.getElementById("reBtn");
+    if (reBtn) reBtn.addEventListener("click", function () { startReanalyze(reBtn); });
   }
 
   function saveNote(text) {
@@ -156,17 +192,67 @@ button.on{background:#2e8bf5;color:#fff;border-color:#2e8bf5}
     });
   }
 
+  function startReanalyze(btn) {
+    btn.disabled = true;
+    btn.textContent = "重新加工中…（约 10–60 秒）";
+    var hint = document.getElementById("reHint");
+    if (hint) hint.textContent = "";
+    fetch("/api/item/" + id + "/reanalyze", {method: "POST"})
+      .then(function (r) {
+        return r.json().then(function (j) { return {code: r.status, j: j}; });
+      })
+      .then(function (res) {
+        if (!res.j || !res.j.ok) {
+          var h = document.getElementById("reHint");
+          if (h) h.innerHTML = '<span class="err">' + esc(
+            (res.j && res.j.error) || ("重新加工失败（HTTP " + res.code + "），请稍后重试")) + "</span>";
+          var b = document.getElementById("reBtn");
+          if (b) { b.disabled = false; b.textContent = "重新加工"; }
+          return;
+        }
+        return fetch("/api/item/" + id).then(function (r) { return r.json(); }).then(render);
+      })
+      .catch(function () {
+        var h = document.getElementById("reHint");
+        if (h) h.innerHTML = '<span class="err">重新加工失败：网络错误，请确认服务在运行后重试</span>';
+        var b = document.getElementById("reBtn");
+        if (b) { b.disabled = false; b.textContent = "重新加工"; }
+      });
+  }
+
+  var favConfirmTimer = null;
   function toggleFav() {
     var b = document.getElementById("fav");
-    var next = !b.classList.contains("on");
+    if (!b) return;
+    var isOn = b.classList.contains("on");
+    if (isOn && !b.getAttribute("data-confirm")) {
+      // 取消收藏需要二次确认：第一次点击只进入确认态，3 秒后自动恢复
+      b.setAttribute("data-confirm", "1");
+      b.textContent = "确认取消收藏？";
+      favConfirmTimer = setTimeout(function () {
+        b.removeAttribute("data-confirm");
+        b.textContent = "★ 已收藏";
+      }, 3000);
+      return;
+    }
+    if (favConfirmTimer) { clearTimeout(favConfirmTimer); favConfirmTimer = null; }
+    b.removeAttribute("data-confirm");
     fetch("/api/item/" + id + "/favorite", {
       method: "POST", headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({favorite: next})
+      body: JSON.stringify({favorite: !isOn})
     }).then(function (r) { return r.json(); }).then(function (j) {
       if (j.ok) {
         b.classList.toggle("on", j.favorite);
         b.textContent = j.favorite ? "★ 已收藏" : "☆ 收藏";
+      } else {
+        b.textContent = isOn ? "★ 已收藏" : "☆ 收藏";
+        var h = document.getElementById("saveHint");
+        if (h) h.textContent = "收藏操作失败：" + (j.error || "未知，请稍后重试");
       }
+    }).catch(function () {
+      b.textContent = isOn ? "★ 已收藏" : "☆ 收藏";
+      var h = document.getElementById("saveHint");
+      if (h) h.textContent = "收藏操作失败：网络错误，请稍后重试";
     });
   }
 

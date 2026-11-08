@@ -26,6 +26,56 @@ TABLES = ("sources", "batches", "items", "analyses", "notes",
 PROXY_MODES = ("direct", "proxy")
 
 
+def _adjust_batch_stats(conn, batch_id, old_status, new_status,
+                        cost_delta, old_reasons, new_reasons) -> bool:
+    """按一次深加工重跑调整 batches.stats_json（T8：重加工后批次账必须同步）。
+    输入：批次 id、旧/新 deep 状态（ok/rejected/failed/None=从未深加工）、
+    本次新调用成本 cost_delta、旧/新拒绝原因。
+    更新 deep_ok/deep_rejected/deep_failed/deep_r11/cost 五个键，其余键原样保留；
+    计数用 max(0,…) 防负；stats_json 缺失或 JSON 非法时安全跳过返回 False（不写坏数据）。
+    SELECT + UPDATE + commit 在同一连接同一事务内完成。返回是否更新成功。"""
+    if batch_id is None:
+        return False
+    row = conn.execute("SELECT stats_json FROM batches WHERE id=?",
+                       (batch_id,)).fetchone()
+    if row is None or not row["stats_json"]:
+        return False
+    try:
+        stats = json.loads(row["stats_json"])
+    except (ValueError, TypeError):
+        return False
+    if not isinstance(stats, dict):
+        return False
+
+    counters = {"ok": "deep_ok", "rejected": "deep_rejected", "failed": "deep_failed"}
+    for status, sign in ((old_status, -1), (new_status, 1)):
+        key = counters.get(status)
+        if key is None:
+            continue
+        cur = stats.get(key)
+        cur = int(cur) if isinstance(cur, (int, float)) else 0
+        stats[key] = max(0, cur + sign)
+
+    def _is_r11(status, reasons):
+        return status == "rejected" and any(
+            str(x).startswith("r11") for x in (reasons or []))
+    old_r11 = _is_r11(old_status, old_reasons)
+    new_r11 = _is_r11(new_status, new_reasons)
+    if old_r11 != new_r11:
+        cur = stats.get("deep_r11")
+        cur = int(cur) if isinstance(cur, (int, float)) else 0
+        stats["deep_r11"] = max(0, cur + (1 if new_r11 else -1))
+
+    cur_cost = stats.get("cost")
+    cur_cost = float(cur_cost) if isinstance(cur_cost, (int, float)) else 0.0
+    stats["cost"] = round(cur_cost + float(cost_delta or 0.0), 6)
+
+    conn.execute("UPDATE batches SET stats_json=? WHERE id=?",
+                 (json.dumps(stats, ensure_ascii=False), batch_id))
+    conn.commit()
+    return True
+
+
 def _source_status(row) -> str:
     """由数据库状态推断源当前状态：最近失败→error；最近成功→ok；从未→never。"""
     if row["last_error"]:
@@ -616,23 +666,29 @@ def create_app() -> FastAPI:
                                 content={"ok": False, "error": f"清理失败：{type(exc).__name__}: {exc}"})
 
     # ---------------- T8：详情 / 备忘录 / 收藏 ----------------
-    def _deep_of(conn, item_id: int):
-        """取该条目的深加工结果（最新一条），返回 (card, reasons, status)。"""
+    def _deep_of(conn, item_id: int) -> dict:
+        """取该条目最新一条深加工记录，返回 dict：
+        card/reasons/status/model/cost/analyzed_at。
+        没有深加工记录时 status/model/analyzed_at 为 None、cost 为 0。"""
         row = conn.execute(
-            "SELECT payload_json, status FROM analyses "
+            "SELECT payload_json, status, model, cost, created_at FROM analyses "
             "WHERE item_id=? AND stage='deep' ORDER BY id DESC LIMIT 1",
             (item_id,)).fetchone()
         if row is None:
-            return None, [], None
+            return {"card": None, "reasons": [], "status": None,
+                    "model": None, "cost": 0.0, "analyzed_at": None}
         try:
             data = json.loads(row["payload_json"] or "{}")
         except (ValueError, TypeError):
             data = {}
-        return data.get("card"), data.get("reasons") or [], row["status"]
+        return {"card": data.get("card"), "reasons": data.get("reasons") or [],
+                "status": row["status"], "model": row["model"],
+                "cost": float(row["cost"] or 0.0), "analyzed_at": row["created_at"]}
 
     @app.get("/api/item/{item_id}")
     def item_detail(item_id: int):
-        """条目详情：原文 + 深加工卡 + 备注 + 收藏态。"""
+        """条目详情：原文 + 深加工卡 + 加工模型/花费/时间 + 备注 + 收藏态。
+        can_reanalyze：deep 状态为 rejected/failed 或从未深加工时 True，ok 时 False。"""
         conn = db.get_conn()
         try:
             row = conn.execute(
@@ -642,7 +698,7 @@ def create_app() -> FastAPI:
             if row is None:
                 return JSONResponse(status_code=404,
                                     content={"error": "条目不存在"})
-            card, reasons, deep_status = _deep_of(conn, item_id)
+            deep = _deep_of(conn, item_id)
             note = conn.execute(
                 "SELECT content, updated_at FROM notes WHERE item_id=? "
                 "ORDER BY id DESC LIMIT 1", (item_id,)).fetchone()
@@ -652,15 +708,105 @@ def create_app() -> FastAPI:
                 "item": {"id": row["id"], "title": row["title"], "url": row["url"],
                          "summary": row["summary"], "published_at": row["published_at"],
                          "region": row["region"], "source": row["source"]},
-                "card": card,
-                "reasons": reasons,
-                "deep_status": deep_status,
+                "card": deep["card"],
+                "reasons": deep["reasons"],
+                "deep_status": deep["status"],
+                "model": deep["model"],
+                "cost": deep["cost"],
+                "analyzed_at": deep["analyzed_at"],
+                "can_reanalyze": deep["status"] != "ok",
                 "note": note["content"] if note else None,
                 "note_updated_at": note["updated_at"] if note else None,
                 "favorite": bool(fav),
             }
         finally:
             conn.close()
+
+    @app.post("/api/item/{item_id}/reanalyze")
+    def reanalyze_item(item_id: int):
+        """强制重新深加工一条（F-006 异常 3：校验不通过可人工重试）。
+        不复用缓存卡：直接走 pipeline.analyze_one，立即写 llm_calls 并新增 analyses。
+        拒绝路径：条目不存在→404；本轮采集中→409；预算熔断→400；均为中文错误。"""
+        from .. import scheduler as sched
+        from .. import budget
+        from ..pipeline import analyze_one
+
+        conn = db.get_conn()
+        try:
+            row = conn.execute("SELECT batch_id FROM items WHERE id=?",
+                               (item_id,)).fetchone()
+            if row is None:
+                return JSONResponse(status_code=404, content={
+                    "ok": False, "error": "条目不存在，请返回大屏确认条目 ID"})
+            batch_id = row["batch_id"]
+            old = _deep_of(conn, item_id)
+        finally:
+            conn.close()
+
+        if sched.STATE.get("running"):
+            return JSONResponse(status_code=409, content={
+                "ok": False, "error": "本轮采集中，请稍后再试"})
+
+        bs = budget.status()
+        if bs["mode"] != "ok":
+            mode_cn = {"hard": "硬停", "soft": "软停"}.get(bs["mode"], bs["mode"])
+            return JSONResponse(status_code=400, content={
+                "ok": False,
+                "error": f"预算{mode_cn}（本月剩余 ¥{bs['remaining']:.2f} / "
+                         f"预算 ¥{bs['budget']:.2f}），已暂停重新加工；"
+                         f"请在大屏设置里提高月预算，或等待下月预算重置后再试"})
+
+        try:
+            analyze_one(item_id)
+        except ValueError as exc:
+            # analyze_one 内部的预算复检 / 条目不存在等中文原因
+            return JSONResponse(status_code=400, content={
+                "ok": False, "error": f"无法重新加工：{exc}"})
+        except Exception as exc:
+            return JSONResponse(status_code=500, content={
+                "ok": False,
+                "error": f"重新加工失败：{type(exc).__name__}: {str(exc)[:200]}；"
+                         f"请检查网络与模型服务后重试，持续失败请查看 data/logs/app.log"})
+
+        conn = db.get_conn()
+        try:
+            deep = _deep_of(conn, item_id)
+        finally:
+            conn.close()
+
+        # 批次账同步：本次新调用已在 llm_calls 记了 deep["cost"]，
+        # stats.cost 必须增加「本次新 cost」才能与 SUM(llm_calls) 对账一致；
+        # 计数按旧→新状态增减一次。stats 更新失败不影响已完成的加工结果。
+        stats_updated = True
+        warning = None
+        conn = db.get_conn()
+        try:
+            stats_updated = _adjust_batch_stats(
+                conn, batch_id, old["status"], deep["status"],
+                deep["cost"], old["reasons"], deep["reasons"])
+            if not stats_updated:
+                warning = ("批次统计未能自动更新（大屏计数可能暂时不准）；"
+                           "加工结果本身已成功，请稍后重试或联系管理员")
+                print(f"[reanalyze] 条目 {item_id} 批次 {batch_id} 统计更新未生效", flush=True)
+        except Exception as exc:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+            stats_updated = False
+            warning = (f"批次统计更新失败：{type(exc).__name__}: {str(exc)[:160]}；"
+                       f"加工结果本身已成功，请稍后重试或在日志 data/logs/app.log 查看原因")
+            print(f"[reanalyze] 条目 {item_id} 统计更新异常：{exc}", flush=True)
+        finally:
+            conn.close()
+
+        result = {"ok": True, "status": deep["status"], "card": deep["card"],
+                  "reasons": deep["reasons"], "model": deep["model"],
+                  "cost": deep["cost"], "analyzed_at": deep["analyzed_at"],
+                  "stats_updated": stats_updated}
+        if warning:
+            result["warning"] = warning
+        return result
 
     @app.post("/api/item/{item_id}/note")
     def save_note(item_id: int, content: str = Body(default="", embed=True)):
