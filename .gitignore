@@ -1,0 +1,43 @@
+# ===== 密钥与本地数据（绝对不许进仓库）=====
+.env
+.env.local
+data/
+*.db
+*.db-wal
+*.db-shm
+data/logs/
+data/backup/
+
+# ===== Python =====
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ===== 编辑器与系统 =====
+.vscode/
+.idea/
+*.swp
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# ===== 临时文件 =====
+*.log
+*.tmp
+~$*
+
+# ===== 基准题生成产物 =====
+tools/baseline/report.md
+tools/baseline/raw/
+
+# ===== Trae Gateway 产物（不属于项目内容）=====
+.gateway-job.json
+TASK.md
+RESULT.md
+REWORK.md
