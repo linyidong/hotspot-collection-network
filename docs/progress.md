@@ -31,8 +31,8 @@
 | T5 | 深加工 + 校验 | ✅ 完成 | 候选池（本批 is_economic=true，每轮 deep_limit 默认 10，超出进候选池）/deep 模型 + deep.md + 12 条校验（r1–r12 含 r8 认输/r11 能力闸/r12 vertical）/analyses(stage='deep') 失败重试≤2/调用即记账/`/api/leads`；实测批次#12：深加工 10 → ok 9 / rejected 1 / failed 0；批次#11 实测 r11 拦截 1（日本国债） |
 | T6 | 调度 + 手动采集 | ✅ 完成 | 08/11/14/17/20/23 六轮 + `misfire_grace_time=7200` + 启动补跑（0–5）+ 心跳 + 手动 409；第二轮 T-003 观察通过 |
 | T7 | 大屏 P1 | ✅ 完成 | 3D 地球 V3.6 + 8 面板 + 60s 轮询；**2026-11-09 补齐指标卡**（金价/油价/汇率） |
-| T8 | 详情 + 备忘/收藏 | ⚠️ 部分完成 | 已有线索卡/备注/收藏；缺「加工模型 + 本条花费」「校验失败重试」「深挖」「按机会类型筛选」「收藏搜索」「取消收藏二次确认」 |
-| T9 | 设置 + 代理分流 | ⚠️ 部分完成 | 源开关/模型/代理/体检/一键模式可用；**桥接源不吃单源代理**（已知盲点） |
+| T8 | 详情 + 备忘/收藏 | ✅ 基本完成（深挖待做） | 2026-11-09 补：加工模型/本条花费/重新加工（服务端 409 防重复烧钱）/取消收藏二次确认/备忘阶段+行业筛选/收藏搜索；仅剩「深挖」二轮检索未做 |
+| T9 | 设置 + 代理分流 | ⚠️ 部分完成 | 源开关/模型/代理/体检可用；源失败原因 + Amazon 快照过期已可见；**桥接源仍不吃单源代理** |
 | T10 | 日志 + 成本 + 熔断 | ✅ 完成 | 成本页与 `llm_calls` 一致；软/硬熔断实测；**`llm_calls` 保留 30 天（2026-11-09 决策）** |
 | T11 | 验收与交付 | ⚠️ 有条件完成 | 自动验收 50 项；T-070/T-073/T-121 口径不足；备份/README/启动脚本已交付 |
 | T12 | 平台侧信号源 | ✅ 完成 | 18→20 源：Google 新闻×5、微博、抖音、百度、Amazon×3（日更快照） |
@@ -51,11 +51,13 @@
 
 ## 四、待确认事项
 
-1. **Amazon 榜单 Chrome 不可用**：`/Applications/Google Chrome.app` 只有 `launcher`，没有真实 Chrome 二进制，平台快照刷新失败；当前会继续用 10-23 的旧快照（3 源 stale）。需要安装真 Chrome 或指定可用 headless 路径。
-2. **候选池上限 200 / 按 potential 淘汰**是否实现（与 PRD「不丢弃」有冲突）。
-3. **F-004 的 `opportunity_type` 6 类字段**：PRD 要求，实际粗筛未输出该字段；是补字段还是改 PRD 描述？
-4. T8/T9 缺口（详情模型/花费/重试/深挖、备忘筛选、收藏搜索/确认、桥接源代理）的排期。
-5. 验收口径修正后是否重新签字（T-070/T-073/T-121）。
+1. **Amazon 榜单 Chrome 不可用**：`/Applications/Google Chrome.app` 只有 `launcher`；快照已如实标 stale（395 小时），但仍需安装真 Chrome 才能刷新。
+2. **Google ×5 无代理**：本机无代理，每轮 ConnectTimeout + 必应降级失败，批次会 degraded（15/20）；需要代理或换可达源。
+3. **候选池上限 200 / 按 potential 淘汰**是否实现（与 PRD「不丢弃」有冲突）。
+4. **F-004 的 `opportunity_type` 6 类字段**：PRD 要求，实际粗筛未输出该字段；是补字段还是改 PRD 描述？
+5. **深挖**（F-005 二轮检索）与**桥接源代理**（F-013）仍未做。
+6. **生产环境硬过滤**（早报/日报/答记者问/批复）只存在于 baseline_test，生产流水线未接。
+7. 验收口径修正后是否重新签字（T-070/T-073/T-121 现已具备真实通过条件）。
 
 ## 五、变更记录
 
@@ -170,3 +172,12 @@
 | 2026-11-09 01:20 | **启动脚本修复**：`启动.command` 原来先检查系统 `python3`（本机 3.9）才看 `.venv`，导致 `.venv` 明明是 3.12 也报「版本过低」。改为**优先复用可用 `.venv`**，需要重建时按 `HCN_PYTHON` → `~/.local/share/hcn/py312/bin/python` → python3.12/3.13/3.11/3 顺序找；实测 `HCN_PAGE=5 ./启动.command` 退出码 0、服务/桥正常 |
 | 2026-11-09 01:20 | **批次 #64（启动补跑，自动）**：抓取 589 → 去重 451 → 粗筛 ok 211（跳过 240）→ 事件合并 40 → 候选 10 → 深加工 ok 9 / rejected 1（r11 拦 1）/ failed 0；花费 ¥0.7850、273.4s、状态 `degraded`（15/20 源，Google×5 ConnectTimeout）。大屏已刷新，指标卡正常，无控制台错误。**T-013 采集段 126.6s > 90s**（Google 失败重试拖长），待修 |
 | 2026-11-09 01:28 | 修 T-013：`gnews` 单源总超时从 20s 收紧到 **8s**（Google 与必应降级都适用），实测 `collect_once` **38.7s**（<90s），仍 15/20（Google 不可达）。下一轮采集段不再被拖到 126s |
+| 2026-11-09 01:26 | **T8 详情页补全（Trae，提交 0aab50b）**：GET /api/item 增加 model/cost/analyzed_at/can_reanalyze；新增 POST /api/item/{id}/reanalyze（404/409/400 中文拒绝 + 强制重跑 + 新增 analyses/llm_calls）；详情页展示加工模型/本条花费/加工时间、rejected/failed 原因 + 重新加工按钮、取消收藏两步确认；浏览器实测三态与按钮显隐 |
+| 2026-11-09 01:37 | **批次账对账（Trae）**：发现 reanalyze 后 batches.stats_json 未更新（批次 64 显示 9 卡/¥0.785，实际 10 卡/¥0.809）；新增 `_adjust_batch_stats`，reanalyze 后同步 deep_ok/rejected/failed/r11/cost；存量 63/64 按实际 analyses + llm_calls 重算（63→10/0/¥0.718195，64→10/0/¥0.808719，与 SUM 一致） |
+| 2026-11-09 01:47 | **T8.1 防护与成本（Trae，提交 3c9e405）**：ok 条目 reanalyze 服务端 409 零调用；`chat(return_meta)` + `deep_one` 累计重试成本（0.01+0.02 测试=0.03，失败也返回累计）；`run.py` 端口检查 SO_REUSEADDR/Win 独占 + 3 次重试（kill 后 1 秒重启成功，真实占用仍中文报错）；detail 在 stats_updated=false 时保留黄色 warning（Playwright 拦截实测） |
+| 2026-11-09 01:47 | **测试事故（如实记录）**：T8.1 首版 monkeypatch 打错补丁点，产生 1 次真实调用 ¥0.016479（llm_calls id=14099，batch_id=999999，不属任何批次）；未删除该行（真实花费），本月预算包含它；已写入 RESULT.md 与本记录 |
+| 2026-11-09 01:56 | **T8-B 备忘/收藏（Trae，提交 b13a074）**：/api/notes 增加 stage/vertical（JSON1 取最新 deep 卡），返回 stage/vertical，非法值 400 中文；/api/favorites 增加 q 搜标题/备注并返回 note；notes.html 增加阶段 chips + 行业下拉，收藏 tab 搜索启用，空态区分；实测 S1=5/S2=1/S3=3/S4=0、数码配件=2、收藏搜宁德/越南各 1，无控制台错误 |
+| 2026-11-09 01:56 | 修备忘录搜索竞态：快速输入/切 tab 时旧响应可能覆盖新结果；notes.html 增加 loadSeq，丢弃过期响应（本次提交） |
+| 2026-11-09 02:02 | **T9-A 源可见性（Trae，提交 75da41c）**：/api/sources 为 snapshot 源加 snapshot_ts/age/stale/stale_reason；大屏 error 红 / stale 黄分离，title 带完整原因；设置页三态 + 名称下小字原因；实测 Amazon 3 行 warn、Google 5 行 err + last_error，无控制台错误 |
+| 2026-11-09 02:07 | **T9-B 快照假新鲜根因（Trae，提交 2190e16）**：platform.refresh 全部失败时不再重写顶层 ts，保留旧 ts 并新增 attempted_at；失败页 fetched_at 优先保留真实时间；is_fresh 要求 pages 非空且无 stale；/api/sources 年龄按 fetched_at 计算；存量 snapshot ts 修正为 2026-10-23 14:47:15（pages 3×20 未动）；实测 is_fresh(20)=False、Amazon age=395h、refresh 全失败后 ts 不变 |
+| 2026-11-09 02:08 | 当前状态：服务运行 127.0.0.1:9000，下一轮 08:00；MAX(batches.id)=64，未触发新采集；本月已花 ¥0.90001（含测试事故 ¥0.016479）；Google×5 仍无代理失败，Amazon 快照 stale 已如实显示；Chrome 仍未安装 |
