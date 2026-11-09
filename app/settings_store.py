@@ -4,10 +4,12 @@
     关键依赖：json、app.config.ROOT。"""
 import json
 import os
+from datetime import datetime
 
 from .config import ROOT
 
 CONFIG_PATH = ROOT / "data" / "config.json"
+SETTINGS_LOG = ROOT / "data" / "logs" / "settings.log"
 
 # 默认值：与 PRD 一致（预算 200 元、深加工 10 条/轮、3 小时一轮）
 DEFAULTS = {
@@ -61,6 +63,7 @@ def load() -> dict:
 def save(updates: dict) -> tuple:
     """校验并保存；返回 (ok, data_or_error)。只接受已知键。"""
     data = load()
+    old_models = {k: data.get(k) for k in ("coarse_model", "deep_model")}
     for key, value in (updates or {}).items():
         if key not in _RULES:
             return False, f"未知配置项：{key}"
@@ -91,6 +94,18 @@ def save(updates: dict) -> tuple:
     tmp = CONFIG_PATH.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     os.replace(tmp, CONFIG_PATH)
+    # F-011：模型切换必须留痕（不记录任何密钥；日志按 30 天清理由 cleanup 的日志策略覆盖）
+    try:
+        changed = [k for k in ("coarse_model", "deep_model")
+                   if old_models.get(k) != data.get(k)]
+        if changed:
+            SETTINGS_LOG.parent.mkdir(parents=True, exist_ok=True)
+            with SETTINGS_LOG.open("a", encoding="utf-8") as f:
+                ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                for k in changed:
+                    f.write(f"{ts}\t{k}\t{old_models.get(k) or '-'} -> {data.get(k)}\n")
+    except OSError:
+        pass       # 日志写失败不影响配置生效
     return True, data
 
 
