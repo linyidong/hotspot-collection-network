@@ -4,7 +4,7 @@
     关键依赖：json、app.config.ROOT。"""
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from .config import ROOT
 
@@ -107,6 +107,43 @@ def save(updates: dict) -> tuple:
     except OSError:
         pass       # 日志写失败不影响配置生效
     return True, data
+
+
+def read_log(limit: int = 20) -> list:
+    """读取最近 N 条模型切换记录（最新在前），供设置页展示。"""
+    if not SETTINGS_LOG.exists():
+        return []
+    try:
+        lines = SETTINGS_LOG.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return []
+    out = []
+    for line in lines[-max(1, int(limit)):]:
+        parts = line.split("\t")
+        if len(parts) == 3:
+            out.append({"ts": parts[0], "field": parts[1], "change": parts[2]})
+    return list(reversed(out))
+
+
+def trim_log(days: int = 30) -> int:
+    """删除 settings.log 中超过 days 天的行；返回删除行数。供 cleanup 每日调用。"""
+    if not SETTINGS_LOG.exists():
+        return 0
+    cutoff = (datetime.now() - timedelta(days=max(1, int(days)))).strftime("%Y-%m-%d %H:%M:%S")
+    try:
+        lines = SETTINGS_LOG.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return 0
+    keep = [x for x in lines if x[:19] >= cutoff]
+    removed = len(lines) - len(keep)
+    if removed:
+        try:
+            tmp = SETTINGS_LOG.with_suffix(".log.tmp")
+            tmp.write_text("\n".join(keep) + ("\n" if keep else ""), encoding="utf-8")
+            os.replace(tmp, SETTINGS_LOG)
+        except OSError:
+            return 0
+    return removed
 
 
 def get(key: str):

@@ -548,6 +548,12 @@ def create_app() -> FastAPI:
         return {"settings": settings_store.load(),
                 "defaults": settings_store.DEFAULTS}
 
+    @app.get("/api/settings/model-log")
+    def model_switch_log(limit: int = 10):
+        """最近模型切换记录（F-011）：只含时间/字段/旧→新，不含任何密钥。"""
+        from .. import settings_store
+        return {"items": settings_store.read_log(max(1, min(int(limit), 50)))}
+
     @app.put("/api/settings")
     def put_settings(payload: dict = Body(default={})):
         """保存业务设置；校验失败返回 400 + 中文原因。间隔类改动需重启生效。"""

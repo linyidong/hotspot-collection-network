@@ -25,7 +25,8 @@ def run(conn=None) -> dict:
             "SELECT i.id FROM items i LEFT JOIN batches b ON b.id=i.batch_id "
             "WHERE COALESCE(i.published_at, b.started_at) < ?", (cutoff_items,)).fetchall()]
 
-        n = {"items": 0, "analyses": 0, "notes": 0, "favorites": 0, "llm_calls": 0}
+        n = {"items": 0, "analyses": 0, "notes": 0, "favorites": 0,
+             "llm_calls": 0, "settings_log": 0}
         if old:
             marks = ",".join("?" * len(old))
             n["favorites"] = conn.execute(
@@ -47,6 +48,11 @@ def run(conn=None) -> dict:
             conn.execute("DELETE FROM heartbeats WHERE ts < ?", (cutoff_hb,))
         except Exception:
             pass
+        # F-011：模型切换日志保留 30 天
+        try:
+            n["settings_log"] = settings_store.trim_log(30)
+        except Exception:
+            n["settings_log"] = 0
         conn.commit()
         return n
     finally:

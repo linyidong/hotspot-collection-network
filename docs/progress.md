@@ -55,7 +55,7 @@
 2. **Google ×5 无代理**：本机无代理，每轮 ConnectTimeout + 必应降级失败，批次会 degraded（15/20）；需要代理或换可达源。
 3. **候选池上限 200 / 按 potential 淘汰**是否实现（与 PRD「不丢弃」有冲突）。
 4. **F-004 的 `opportunity_type` 6 类字段**：PRD 要求，实际粗筛未输出该字段；是补字段还是改 PRD 描述？
-5. **深挖**（F-005 二轮检索）仍未做；桥接源代理已完成（http/https/socks5）；模型切换日志已完成（F-011）。
+5. **深挖**（F-005 二轮检索）仍未做；桥接源代理已完成（http/https/socks5）；模型切换日志已完成（F-011，含设置页展示 + 30 天清理）。
 6. **生产环境硬过滤**（早报/日报/答记者问/批复）只存在于 baseline_test，生产流水线未接。
 7. 验收口径修正后是否重新签字（T-070/T-073/T-121 现已具备真实通过条件）。
 
@@ -197,3 +197,4 @@
 | 2026-11-09 09:00 | **代理凭据脱敏**：`/api/sources` 的 `proxy_url` 只返回 `scheme://***:***@host:port`（新增 `proxy_url_set`）；设置页代理输入框不再回填明文，留空保存会保留原代理；桥 502 错误也打码；更新源接口接受 `socks://` 别名、拒绝把脱敏串写回。实测 Google 5 源仍 proxy=true、fetch 32 条，页面无明文凭据 |
 | 2026-11-09 09:00 | **设置页保存 bug（验收中发现）**：`proxy_url_default` 不在 `settings_store._RULES`，且前端把所有非模型字段强制 `Number()`，导致任何设置保存都报「未知配置项/必须以 http 开头」。已放行该键并做 scheme 校验，前端保留字符串；Playwright 点保存成功，代理配置未被覆盖 |
 | 2026-11-09 09:00 | **F-011 模型切换留痕**：`settings_store.save` 在 coarse_model/deep_model 变化时追加 `data/logs/settings.log`（时间、字段、旧→新，不含密钥）；日志写失败不影响配置生效。实测 API 切换 deepseek-flash→deepseek-chat→deepseek-flash，两次都留痕，配置已复原 |
+| 2026-11-09 09:05 | **F-011 闭环**：`settings_store.read_log()/trim_log()` + `GET /api/settings/model-log`；设置页「最近模型切换」显示最近 5 条（粗筛/深加工、旧→新）；`cleanup.run` 每日清理 30 天前记录（返回值新增 settings_log）。实测 API 返回 2 条、页面正常渲染；写入 2020 年假记录后 `trim_log(30)` 删除 1 条，真实记录保留 |

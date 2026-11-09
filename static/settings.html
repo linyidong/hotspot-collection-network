@@ -31,6 +31,8 @@ button.ghost{background:rgba(120,180,255,.15);color:#cfe3ff;border:1px solid rgb
 .ok{color:#2ecc8f}.bad{color:#ff8080}.warn{color:#f5a623}
 .srcnote{font-size:11px;line-height:1.5;margin-top:2px;word-break:break-all}
 .switch{display:inline-flex;align-items:center;gap:6px;cursor:pointer}
+.mlog{font-size:12px;color:#8fa3c4;margin-top:10px;line-height:1.8}
+.mlog b{font-weight:400;color:#cfe3ff}
 </style>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='27' fill='%230b1a2b' stroke='%2335d0e8' stroke-width='4'/%3E%3Cpath d='M5 32h54M32 5c11 11 11 43 0 54M32 5c-11 11-11 43 0 54' stroke='%2335d0e8' stroke-width='3' fill='none'/%3E%3C/svg%3E">
 </head>
@@ -61,6 +63,7 @@ button.ghost{background:rgba(120,180,255,.15);color:#cfe3ff;border:1px solid rgb
       <label>轮次间隔</label>
       <div><input id="run_interval_minutes" type="number" min="1" max="1440"><small>分钟；<b>0 = 每日固定 08/11/14/17/20/23（推荐）</b>，&gt;0 = 自定义间隔；改完需重启服务</small></div>
     </div>
+    <div class="mlog" id="modelLog">最近模型切换：加载中…</div>
   </section>
 
   <section>
@@ -220,10 +223,27 @@ button.ghost{background:rgba(120,180,255,.15);color:#cfe3ff;border:1px solid rgb
     });
   }
 
+  function renderModelLog(items) {
+    var box = document.getElementById("modelLog");
+    if (!box) return;
+    if (!items || !items.length) { box.textContent = "最近模型切换：无（还没有改过模型）"; return; }
+    var names = {coarse_model: "粗筛", deep_model: "深加工"};
+    box.innerHTML = "最近模型切换：<br>" + items.map(function (x) {
+      return '<b>' + esc(x.ts || "") + "</b> · " + esc(names[x.field] || x.field) +
+             " · " + esc(x.change || "");
+    }).join("<br>");
+  }
+  function loadModelLog() {
+    fetch("/api/settings/model-log?limit=5").then(function (r) { return r.json(); })
+      .then(function (j) { renderModelLog(j.items || []); })
+      .catch(function () { renderModelLog([]); });
+  }
+
   function load() {
     fetch("/api/settings").then(function (r) { return r.json(); }).then(function (j) {
       fillForm(j.settings || {});
     });
+    loadModelLog();
     fetch("/api/sources").then(function (r) { return r.json(); }).then(function (j) {
       renderSources(j.sources || []);
     });
