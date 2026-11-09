@@ -3,8 +3,11 @@
 职责：用本机 headless Chrome 打开 Amazon Best Sellers 等榜单页，抽取商品名与链接，
       写入 data/platform_snapshot.json；采集层按快照生成条目（日更即可，不跟 3 小时轮次）。
       Chrome 打开失败 / 页面改版 → 记 last_error，绝不影响其它源。
-关键依赖：subprocess（调用本机 Chrome，Windows/macOS/Linux 路径均已适配）、json、html.parser。
+关键依赖：subprocess（调用本机 Chrome，Windows/macOS/Linux 路径均已适配；
+          本机没有系统 Chrome 时自动识别 Playwright 缓存的 Chrome for Testing）、
+          json、html.parser、glob。
 """
+import glob
 import html
 import json
 import os
@@ -41,6 +44,45 @@ CHROME_CANDIDATES = [
 ]
 
 
+# Playwright 缓存的浏览器（glob 展开版本号目录；同一模式内按版本倒序，新优先）
+PLAYWRIGHT_CANDIDATES = [
+    # macOS
+    "~/Library/Caches/ms-playwright/chromium-*/chrome-mac-arm64/"
+    "Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing",
+    "~/Library/Caches/ms-playwright/chromium-*/chrome-mac/"
+    "Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing",
+    "~/Library/Caches/ms-playwright/chromium_headless_shell-*/"
+    "chrome-headless-shell-mac-arm64/chrome-headless-shell",
+    # Linux
+    "~/.cache/ms-playwright/chromium-*/chrome-linux/chrome",
+    "~/.cache/ms-playwright/chromium_headless_shell-*/"
+    "chrome-headless-shell-linux64/chrome-headless-shell",
+    # Windows
+    "%LOCALAPPDATA%/ms-playwright/chromium-*/chrome-win/chrome.exe",
+]
+
+
+def _pw_version(path: str) -> int:
+    """从 chromium-NNNN / chromium_headless_shell-NNNN 目录名提取版本号（无则 -1）。"""
+    m = re.search(r"chrom(?:ium_headless_shell|ium)-(\d+)", path)
+    return int(m.group(1)) if m else -1
+
+
+def _playwright_chrome() -> str:
+    """在 Playwright 缓存里找可执行的 Chrome for Testing / headless-shell。
+
+    按 PLAYWRIGHT_CANDIDATES 给出的顺序尝试；同一模式命中多个版本时按版本号
+    倒序取最新。找不到返回空串。"""
+    for pattern in PLAYWRIGHT_CANDIDATES:
+        expanded = os.path.expandvars(os.path.expanduser(pattern))
+        hits = [p for p in glob.glob(expanded)
+                if os.path.isfile(p) and os.access(p, os.X_OK)]
+        if hits:
+            hits.sort(key=_pw_version, reverse=True)
+            return hits[0]
+    return ""
+
+
 def _chrome_path() -> str:
     for p in CHROME_CANDIDATES:
         if os.path.exists(p):
@@ -48,7 +90,13 @@ def _chrome_path() -> str:
     found = shutil.which("chrome") or shutil.which("chrome.exe")
     if found:
         return found
-    raise FileNotFoundError("找不到 Chrome（平台榜单需要本机 Chrome：Windows 装 Chrome，macOS 放 /Applications，Linux 装 google-chrome）")
+    pw = _playwright_chrome()
+    if pw:
+        return pw
+    raise FileNotFoundError(
+        "找不到 Chrome：平台榜单需要本机浏览器。怎么办：可安装 Chrome，"
+        "或用 Playwright 的 Chrome for Testing"
+        "（pip install playwright && playwright install chromium 后本模块会自动识别）")
 
 
 class _LinkText(HTMLParser):
