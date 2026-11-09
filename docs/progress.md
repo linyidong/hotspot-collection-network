@@ -32,7 +32,7 @@
 | T6 | 调度 + 手动采集 | ✅ 完成 | 08/11/14/17/20/23 六轮 + `misfire_grace_time=7200` + 启动补跑（0–5）+ 心跳 + 手动 409；第二轮 T-003 观察通过 |
 | T7 | 大屏 P1 | ✅ 完成 | 3D 地球 V3.6 + 8 面板 + 60s 轮询；**2026-11-09 补齐指标卡**（金价/油价/汇率） |
 | T8 | 详情 + 备忘/收藏 | ✅ 基本完成（深挖待做） | 2026-11-09 补：加工模型/本条花费/重新加工（服务端 409 防重复烧钱）/取消收藏二次确认/备忘阶段+行业筛选/收藏搜索；仅剩「深挖」二轮检索未做 |
-| T9 | 设置 + 代理分流 | ✅ 完成 | 源开关/模型/代理/体检可用；源失败原因 + Amazon 快照过期已可见；桥接源已支持 http/https 代理（socks5 不支持） |
+| T9 | 设置 + 代理分流 | ✅ 完成 | 源开关/模型/代理/体检可用；源失败原因 + Amazon 快照过期已可见；桥接源已支持 http/https/socks5 代理 |
 | T10 | 日志 + 成本 + 熔断 | ✅ 完成 | 成本页与 `llm_calls` 一致；软/硬熔断实测；**`llm_calls` 保留 30 天（2026-11-09 决策）** |
 | T11 | 验收与交付 | ⚠️ 有条件完成 | 自动验收 50 项；T-070/T-073/T-121 口径不足；备份/README/启动脚本已交付 |
 | T12 | 平台侧信号源 | ✅ 完成 | 18→20 源：Google 新闻×5、微博、抖音、百度、Amazon×3（日更快照） |
@@ -55,7 +55,7 @@
 2. **Google ×5 无代理**：本机无代理，每轮 ConnectTimeout + 必应降级失败，批次会 degraded（15/20）；需要代理或换可达源。
 3. **候选池上限 200 / 按 potential 淘汰**是否实现（与 PRD「不丢弃」有冲突）。
 4. **F-004 的 `opportunity_type` 6 类字段**：PRD 要求，实际粗筛未输出该字段；是补字段还是改 PRD 描述？
-5. **深挖**（F-005 二轮检索）仍未做；桥接源代理已完成（http/https）。
+5. **深挖**（F-005 二轮检索）仍未做；桥接源代理已完成（http/https/socks5）。
 6. **生产环境硬过滤**（早报/日报/答记者问/批复）只存在于 baseline_test，生产流水线未接。
 7. 验收口径修正后是否重新签字（T-070/T-073/T-121 现已具备真实通过条件）。
 
@@ -192,3 +192,4 @@
 | 2026-11-09 08:35 | **T12-Chrome（Trae，提交 81228c1）**：`app/platform.py` 在无系统 Chrome 时自动识别 Playwright 缓存（`~/Library/Caches/ms-playwright/chromium-*/.../Google Chrome for Testing` + headless-shell，按版本倒序）；实测 Amazon 3 榜各 20 条、errors 空、ts=08:34、`is_fresh(20)=True`；服务重启后 `/api/sources` Amazon `stale=false`、age=0，大屏 3 行恢复绿色。未跑整轮、未调 LLM，MAX(batches.id)=65 |
 | 2026-11-09 08:36 | 当前：服务 screen hcn 常驻（127.0.0.1:9000），下一轮 11:00；MAX(batches.id)=65；本月已花 ¥1.462201；Amazon 已恢复实时，Google×5 仍无代理失败；桥接源代理已完成；仍缺深挖/Google 代理/候选池决策/真实使用 |
 | 2026-11-09 08:40 | **重跑自动验收（tools/acceptance_run.py）**：50 项通过。T-070 字段已包含 model/cost/analyzed_at/can_reanalyze；T-013 批次 65 collect_s=86.5s 通过；T-003 按在线口径 应跑 6/在线 1（凌晨停摆，08:00 由批次 65 补跑），离线跳过 5。说明：T-073 仍只测收藏开关，页面内二次确认由 Playwright 单独实测；T-121 仍测「全部源不可达」，指标卡降级由拦截 /api/market 单独实测；报告已更新 docs/acceptance-report.md |
+| 2026-11-09 08:50 | **SOCKS5 支持**：用户可用代理全是 socks5。新增 `socksio>=0.2.0`（requirements + third_party/requirements）；桥 `fetch_json` 的代理分支改用 httpx（原生支持 socks5），不再用 urllib ProxyHandler；代理地址校验允许 `socks5://`/`socks5h://`；设置页/README/PRD/代理指南同步。用本机临时 SOCKS5 代理实测：httpx 直连 Amazon/财联社 200、桥 `/cls/telegraph?proxy=socks5://...` 50 条、直连型源 50 条、桥接型源 50 条；非法 socks4 400。临时代理已关闭，未提交任何密钥 |
