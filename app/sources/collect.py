@@ -62,7 +62,7 @@ def _build_source(spec, proxy_mode: str, proxy_url: str):
         return WallStcnSource(spec, proxy_url=proxy, timeout=FETCH_TIMEOUT)
     from ..bridge import bridge as _bridge          # 运行时真实端口（可能不是 8053）
     return RssBridgeSource(spec, bridge_port=_bridge.port,
-                           timeout=FETCH_TIMEOUT)
+                           timeout=FETCH_TIMEOUT, proxy_url=proxy)
 
 
 def _run_one(src):

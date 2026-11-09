@@ -43,17 +43,30 @@ cache = {}
 jin10_public_headers = None
 
 
-def fetch_json(url, headers=None):
-    """Fetch URL with in-memory cache."""
+def fetch_json(url, headers=None, proxy=None):
+    """Fetch URL with in-memory cache.
+
+    When ``proxy`` (an http/https URL) is given, the request goes through
+    urllib's ProxyHandler; without it the original direct urlopen path is
+    used. The cache key always includes the proxy so direct and proxied
+    responses never cross-contaminate each other.
+    """
     now = time()
-    if url in cache and now - cache[url]['time'] < CACHE_TTL:
-        return cache[url]['data']
+    cache_key = f"{url}|{proxy or ''}"
+    if cache_key in cache and now - cache[cache_key]['time'] < CACHE_TTL:
+        return cache[cache_key]['data']
 
     req = Request(url, headers=headers or {})
-    with urlopen(req, timeout=REQUEST_TIMEOUT) as resp:
-        data = resp.read().decode('utf-8')
+    if proxy:
+        opener = urllib.request.build_opener(
+            urllib.request.ProxyHandler({'http': proxy, 'https': proxy}))
+        with opener.open(req, timeout=REQUEST_TIMEOUT) as resp:
+            data = resp.read().decode('utf-8')
+    else:
+        with urlopen(req, timeout=REQUEST_TIMEOUT) as resp:
+            data = resp.read().decode('utf-8')
 
-    cache[url] = {'data': data, 'time': now}
+    cache[cache_key] = {'data': data, 'time': now}
     return data
 
 
@@ -124,14 +137,19 @@ def extract_jin10_public_app_id(bundle_text):
     return match.group(1)
 
 
-def get_jin10_public_headers():
-    """Build Jin10 headers from public frontend assets without hardcoded ids."""
+def get_jin10_public_headers(proxy=None):
+    """Build Jin10 headers from public frontend assets without hardcoded ids.
+
+    The module-level cache only applies to direct (no-proxy) fetches so
+    headers obtained through a proxy never leak into direct requests
+    (and vice versa).
+    """
     global jin10_public_headers
-    if jin10_public_headers:
+    if proxy is None and jin10_public_headers:
         return dict(jin10_public_headers)
 
     base_headers = {'User-Agent': 'Mozilla/5.0', 'Referer': 'https://www.jin10.com/'}
-    html = fetch_json('https://www.jin10.com/', base_headers)
+    html = fetch_json('https://www.jin10.com/', base_headers, proxy=proxy)
     script_match = re.search(r'(?:https:)?//www\.jin10\.com/new/js/index\.[^"\']+\.js', html)
     if not script_match:
         script_match = re.search(r'/new/js/index\.[^"\']+\.js', html)
@@ -144,9 +162,9 @@ def get_jin10_public_headers():
     elif script_url.startswith('/'):
         script_url = 'https://www.jin10.com' + script_url
 
-    bundle = fetch_json(script_url, base_headers)
+    bundle = fetch_json(script_url, base_headers, proxy=proxy)
     app_id = extract_jin10_public_app_id(bundle)
-    jin10_public_headers = {
+    headers = {
         'User-Agent': 'Mozilla/5.0',
         'Accept': 'application/json,text/plain,*/*',
         'Referer': 'https://www.jin10.com/',
@@ -154,7 +172,9 @@ def get_jin10_public_headers():
         'x-app-id': app_id,
         'x-version': '1.0.0',
     }
-    return dict(jin10_public_headers)
+    if proxy is None:
+        jin10_public_headers = headers
+    return dict(headers)
 
 
 def generate_rss(title, link, description, items, feed_url=None):
@@ -280,7 +300,7 @@ def generate_opml(base_url):
 
 # ── Source handlers ──────────────────────────────────────────────────────────
 
-def handle_cls_telegraph(feed_url=None):
+def handle_cls_telegraph(feed_url=None, proxy=None):
     """CLS Telegraph (财联社电报) - Real-time financial news flashes."""
     url = 'https://www.cls.cn/v1/roll/get_roll_list'
     params = {
@@ -294,7 +314,7 @@ def handle_cls_telegraph(feed_url=None):
     params['sign'] = cls_sign_params(params)
     headers = {'User-Agent': 'Mozilla/5.0', 'Referer': 'https://www.cls.cn/telegraph'}
 
-    data = json.loads(fetch_json(f'{url}?{urlencode(params)}', headers))
+    data = json.loads(fetch_json(f'{url}?{urlencode(params)}', headers, proxy=proxy))
 
     return generate_rss(
         '财联社电报',
@@ -305,12 +325,12 @@ def handle_cls_telegraph(feed_url=None):
     )
 
 
-def handle_eastmoney_kuaixun(feed_url=None):
+def handle_eastmoney_kuaixun(feed_url=None, proxy=None):
     """Eastmoney 7x24 News (东方财富快讯)."""
     url = 'https://newsapi.eastmoney.com/kuaixun/v1/getlist_102_ajaxResult_50_1_.html'
     headers = {'User-Agent': 'Mozilla/5.0', 'Referer': 'https://kuaixun.eastmoney.com/'}
 
-    data = fetch_json(url, headers)
+    data = fetch_json(url, headers, proxy=proxy)
     match = re.search(r'var ajaxResult=(\{.*\});?', data, re.DOTALL)
     if not match:
         return generate_rss(
@@ -348,7 +368,7 @@ def handle_eastmoney_kuaixun(feed_url=None):
     )
 
 
-def handle_ths_kuaixun(feed_url=None):
+def handle_ths_kuaixun(feed_url=None, proxy=None):
     """THS 7x24 News (同花顺快讯)."""
     url = 'https://news.10jqka.com.cn/tapp/news/push/stock/?page=1&tag=&track=website&pagesize=50'
     headers = {
@@ -356,7 +376,7 @@ def handle_ths_kuaixun(feed_url=None):
         'Referer': 'https://news.10jqka.com.cn/'
     }
 
-    data = json.loads(fetch_json(url, headers))
+    data = json.loads(fetch_json(url, headers, proxy=proxy))
     items = []
 
     for item in data.get('data', {}).get('list', []):
@@ -377,10 +397,10 @@ def handle_ths_kuaixun(feed_url=None):
     )
 
 
-def handle_jin10_flash(feed_url=None):
+def handle_jin10_flash(feed_url=None, proxy=None):
     """Jin10 7x24 flash news (金十快讯)."""
     url = 'https://flash-api.jin10.com/get_flash_list?channel=-8200&limit=50'
-    data = json.loads(fetch_json(url, get_jin10_public_headers()))
+    data = json.loads(fetch_json(url, get_jin10_public_headers(proxy=proxy), proxy=proxy))
     return generate_rss(
         '金十快讯',
         'https://www.jin10.com/',
@@ -390,7 +410,7 @@ def handle_jin10_flash(feed_url=None):
     )
 
 
-def handle_wallstreetcn_live(feed_url=None):
+def handle_wallstreetcn_live(feed_url=None, proxy=None):
     """Wallstreetcn 7x24 live news (华尔街见闻快讯)."""
     url = 'https://api-one-wscn.awtmt.com/apiv1/content/lives?channel=global-channel&client=pc&limit=50'
     headers = {
@@ -399,7 +419,7 @@ def handle_wallstreetcn_live(feed_url=None):
         'Referer': 'https://wallstreetcn.com/live',
     }
 
-    data = json.loads(fetch_json(url, headers))
+    data = json.loads(fetch_json(url, headers, proxy=proxy))
     return generate_rss(
         '华尔街见闻快讯',
         'https://wallstreetcn.com/live',
@@ -581,7 +601,9 @@ class RSSHandler(BaseHTTPRequestHandler):
                             body, cache=False, write_body=write_body)
             return
         if path in ROUTES:
-            self._serve_feed(path, base_url, write_body=write_body)
+            query = parse_qs(parsed.query)
+            proxy = query.get('proxy', [''])[0].strip() or None
+            self._serve_feed(path, base_url, proxy=proxy, write_body=write_body)
             return
         if path.startswith('/xueqiu/user/'):
             uid = path.split('/')[-1]
@@ -593,13 +615,29 @@ class RSSHandler(BaseHTTPRequestHandler):
 
         self.send_error(404, 'Not Found. Visit / for available feeds.')
 
-    def _serve_feed(self, path, base_url, write_body=True):
+    def _serve_feed(self, path, base_url, proxy=None, write_body=True):
         _, handler = ROUTES[path]
         feed_url = base_url + path
+        if proxy and not (proxy.startswith('http://') or proxy.startswith('https://')):
+            self._send_text(
+                400, 'text/plain; charset=utf-8',
+                'proxy 参数无效：只支持 http/https 代理（socks5 不支持）；'
+                '代理地址必须以 http:// 或 https:// 开头。',
+                cache=False, write_body=write_body)
+            return
         try:
-            xml = handler(feed_url=feed_url)
+            xml = handler(feed_url=feed_url, proxy=proxy)
         except Exception as exc:
             title, link, description = ROUTE_META[path]
+            if proxy:
+                # 代理请求失败：返回 502 中文错误，不伪装成正常 RSS；桥进程不崩。
+                error_text = str(exc) or exc.__class__.__name__
+                self._send_text(
+                    502, 'text/plain; charset=utf-8',
+                    f'代理抓取失败（{title}）：通过代理 {proxy} 请求上游未成功。'
+                    f'原因：{error_text}。请检查代理地址是否可用（仅支持 http/https 代理）。',
+                    cache=False, write_body=write_body)
+                return
             xml = generate_error_rss(title, link, description, exc, feed_url=feed_url)
 
         self._send_text(200, 'application/rss+xml; charset=utf-8',
