@@ -2,7 +2,8 @@
 """模块：T4 单轮流水线。职责：把「采集 → 建批次 → 落库 → 去重 → 粗筛 → 记账」串成
     run_once()，返回统计 dict 供 CLI 摘要与 batches.stats_json。
     去重：URL 归一化（去 utm_*/fbclid/锚点、host 小写）相同或标题相似度 ≥0.9 → 重复条；
-    粗筛：deepseek-flash + prompts/coarse.md，并发 6，单条失败重试 1 次，失败不阻塞。
+    粗筛：先纯字符串硬过滤（T4.1，与 tools/baseline_test.py 同口径，命中=skipped 不进模型不计费），
+    再 deepseek-flash + prompts/coarse.md，并发 6，单条失败重试 1 次，失败不阻塞。
     熔断：轮首查预算 mode——hard 整轮不调任何模型、soft 只跑粗筛跳过深加工；
     深加工每次调用前复检一次，防止轮内超支。
     关键依赖：app.sources.collect、app.llm、app.db、app.config。"""
@@ -48,6 +49,23 @@ _TRACKING_PARAMS = {"utm_source", "utm_medium", "utm_campaign", "utm_term",
 
 def _now() -> str:
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+# ---------------------------------------------------------------------------
+# 硬过滤（T4.1：与 tools/baseline_test.py 同口径，粗筛前的纯字符串闸，不进模型不计费）
+# ---------------------------------------------------------------------------
+HARD_FILTER_WORDS = ["早报", "日报", "综述", "快讯汇总", "投资者关系", "答记者问", "批复"]
+
+
+def hard_filter(item: dict) -> "str | None":
+    """标题/摘要命中硬过滤词 → 返回命中词；否则 None。命中条目不进模型，不计费。
+    生产 item 无 content 字段（baseline 版检查 title+content+summary），这里查 title+summary；
+    纯字符串包含判断，字段为 None 也不抛异常。"""
+    text = f"{item.get('title') or ''} {item.get('summary') or ''}"
+    for w in HARD_FILTER_WORDS:
+        if w in text:
+            return w
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -316,7 +334,8 @@ def run_once(deep_limit: int = None, trigger: str = "手动") -> dict:
     cfg = settings_store.load()          # 界面设置（模型/限额），.env 仍优先级更高
     conn = db.get_conn()
     stats = {"fetched": 0, "after_dedup": 0, "coarse_ok": 0, "coarse_skipped": 0,
-             "coarse_failed": 0, "deep_ok": 0, "deep_rejected": 0,
+             "coarse_failed": 0, "hard_filtered": 0,
+             "deep_ok": 0, "deep_rejected": 0,
              "deep_failed": 0, "deep_skipped": 0, "deep_candidates": 0,
              "deep_r11": 0, "cost": 0.0, "duration_s": 0.0,
              "sources_ok": 0, "sources_failed": 0,
@@ -379,6 +398,27 @@ def run_once(deep_limit: int = None, trigger: str = "手动") -> dict:
                 "FROM items i JOIN sources s ON s.id=i.source_id "
                 "WHERE i.batch_id=? AND i.is_duplicate=0 ORDER BY i.id",
                 (batch_id,)).fetchall()
+
+            # 5.1) 硬过滤（T4.1，与基准题同口径）：命中词条目不进模型、不计费、
+            #      不提交线程池；条目保留在 items，只补一条 coarse=skipped 的分析记录。
+            survivors = []
+            for it in to_coarse:
+                word = hard_filter(dict(it))
+                if word is None:
+                    survivors.append(it)
+                    continue
+                conn.execute(
+                    "INSERT INTO analyses(item_id, stage, model, payload_json, "
+                    "status, cost, created_at) VALUES(?,?,?,?,?,?,?)",
+                    (it["id"], "coarse", cfg["coarse_model"],
+                     json.dumps({"hard_filter": word,
+                                 "reason": f"hard_filter:{word}"},
+                                ensure_ascii=False),
+                     "skipped", 0.0, _now()))
+                stats["coarse_skipped"] += 1
+                stats["hard_filtered"] += 1
+            conn.commit()
+            to_coarse = survivors
 
             def _run(item):
                 return coarse_one(item, batch_id, cfg["coarse_model"])
