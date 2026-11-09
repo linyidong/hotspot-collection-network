@@ -26,6 +26,23 @@ header h1{font-size:16px;color:#eaf2ff;letter-spacing:1px;white-space:nowrap}
 .spend{font-size:12px;color:#8fa3c4;white-space:nowrap}
 .nav{font-size:12px;color:#7fd4ff;text-decoration:none;padding:4px 10px;border:1px solid rgba(120,180,255,.3);border-radius:4px;white-space:nowrap;background:transparent;cursor:pointer;font-family:inherit}
 .nav:hover{background:rgba(120,180,255,.15)}
+.navwrap{position:relative;display:inline-flex}
+.costpop{position:absolute;right:0;top:calc(100% + 7px);width:300px;background:rgba(8,16,28,.98);
+  border:1px solid rgba(120,180,255,.28);border-radius:8px;padding:12px 14px;
+  box-shadow:0 12px 34px rgba(0,0,0,.55);z-index:40;font-size:12px;color:#cdd9ee}
+.costpop[hidden]{display:none}
+.cph{display:flex;justify-content:space-between;align-items:center;color:#eaf2ff;font-size:13px;
+  border-bottom:1px solid rgba(120,180,255,.16);padding-bottom:8px;margin-bottom:8px}
+.cph em{font-style:normal;color:#6b7a94;font-size:10px}
+.crow{display:flex;justify-content:space-between;gap:12px;padding:3px 0;color:#9fb4d8}
+.crow b{color:#eaf2ff;font-weight:400;font-variant-numeric:tabular-nums}
+.crow .cok{color:#2ecc8f}.crow .cwarn{color:#f5a623}.crow .cbad{color:#ff8080}
+.chr{height:1px;background:rgba(120,180,255,.12);margin:8px 0}
+.clabel{color:#6b7a94;font-size:10px;margin:8px 0 3px}
+.cstage{color:#cfe3ff;line-height:1.8}
+.cstage span{display:block;margin:2px 0;white-space:nowrap}
+.cerr{color:#ff8080;line-height:1.7}
+.cerr button{margin-top:4px}
 .card .ai{font-size:10px;padding:0 6px;border-radius:3px;border:1px solid rgba(53,208,232,.5);
   background:rgba(53,208,232,.12);color:#7fe6f5;cursor:pointer;flex:none;line-height:15px}
 .card .ai:hover{background:rgba(53,208,232,.28)}
@@ -301,7 +318,13 @@ footer b{color:#9fb4d8}
   <section id="cen">
     <div id="globebar">
       <button class="nav" id="btnNight" title="切换夜间模式（镂空地球 + 悬浮大陆 + 城市灯光）">夜间</button>
-      <a class="nav" href="/static/cost.html">成本</a>
+      <div class="navwrap" id="costWrap">
+        <button class="nav" id="btnCost" aria-haspopup="true" aria-expanded="false" title="查看本月成本概览">成本</button>
+        <div class="costpop" id="costPop" hidden>
+          <div class="cph"><span>成本概览</span><em>近 7 天</em></div>
+          <div id="costBody"><div class="crow">加载中…</div></div>
+        </div>
+      </div>
     </div>
     <div id="g3d">
       <div id="mkt" title="行情来自公开接口，60 秒缓存">
@@ -354,6 +377,6 @@ footer b{color:#9fb4d8}
 </div>
 <script src="./static/vendor/three.min.js?v=20261023"></script>
 <script src="./static/js/earth.js?v=20261023"></script>
-<script src="./static/js/app.js?v=20261109b"></script>
+<script src="./static/js/app.js?v=20261109c"></script>
 </body>
 </html>

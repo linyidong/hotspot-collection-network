@@ -7,7 +7,7 @@ import json
 import threading
 import time
 from datetime import datetime
-from urllib.parse import urlsplit
+from urllib.parse import quote, unquote, urlsplit
 
 from fastapi import Body, FastAPI
 from fastapi.responses import FileResponse, JSONResponse
@@ -26,6 +26,10 @@ TABLES = ("sources", "batches", "items", "analyses", "notes",
           "favorites", "llm_calls", "config")
 
 PROXY_MODES = ("direct", "proxy")
+SOCKS5_SOURCE_IDS = ("gnews-kuajing", "gnews-xuanpin", "gnews-guanshui",
+                     "gnews-platform", "gnews-warehouse")
+SOCKS5_SOURCE_NAMES = tuple(get_spec(x).name for x in SOCKS5_SOURCE_IDS
+                            if get_spec(x) is not None)
 
 
 def _mask_proxy_url(url) -> str | None:
@@ -417,6 +421,96 @@ def create_app() -> FastAPI:
             return {"batch_id": batch_id, "leads": out, "count": len(out)}
         finally:
             conn.close()
+
+    @app.get("/api/sources/socks5")
+    def get_socks5_preset():
+        """境外 SOCKS5 预设：从 Google×5 现有代理反读 host/port/user。
+        永不返回密码；password_set 只表示已保存过密码。"""
+        conn = db.get_conn()
+        try:
+            marks = ",".join("?" * len(SOCKS5_SOURCE_NAMES))
+            rows = conn.execute(
+                f"SELECT name, proxy_url FROM sources WHERE name IN ({marks})",
+                SOCKS5_SOURCE_NAMES).fetchall()
+        finally:
+            conn.close()
+        row = next((r for r in rows if r["proxy_url"]), None)
+        if row is None:
+            return {"configured": False, "host": "", "port": "",
+                    "username": "", "password_set": False,
+                    "masked": "", "source_ids": list(SOCKS5_SOURCE_IDS)}
+        try:
+            u = urlsplit(row["proxy_url"])
+        except ValueError:
+            return {"configured": False, "host": "", "port": "",
+                    "username": "", "password_set": False,
+                    "masked": "", "source_ids": list(SOCKS5_SOURCE_IDS)}
+        return {"configured": True,
+                "host": u.hostname or "", "port": u.port or "",
+                "username": unquote(u.username) if u.username else "",
+                "password_set": u.password is not None,
+                "masked": _mask_proxy_url(row["proxy_url"]),
+                "source_ids": list(SOCKS5_SOURCE_IDS)}
+
+    @app.post("/api/sources/socks5")
+    def apply_socks5_preset(payload: dict = Body(default={})):
+        """把一组 SOCKS5 字段应用到 Google×5；密码留空时复用已保存密码，
+        绝不在响应中返回密码。"""
+        host = str(payload.get("host") or "").strip()
+        port_raw = str(payload.get("port") or "").strip()
+        username = str(payload.get("username") or "").strip()
+        password = str(payload.get("password") or "")
+        if not host or "://" in host or "/" in host or " " in host or "@" in host:
+            return JSONResponse(status_code=400, content={
+                "ok": False, "error": "SOCKS5 地址填主机名或 IP（不要带 socks5://、端口或路径）"})
+        try:
+            port = int(port_raw)
+        except (TypeError, ValueError):
+            return JSONResponse(status_code=400, content={
+                "ok": False, "error": "端口必须是 1–65535 的数字"})
+        if not (1 <= port <= 65535):
+            return JSONResponse(status_code=400, content={
+                "ok": False, "error": "端口必须在 1–65535 之间"})
+        if password and not username:
+            return JSONResponse(status_code=400, content={
+                "ok": False, "error": "填了密码就必须填用户名；无认证代理请把用户名和密码都留空"})
+
+        conn = db.get_conn()
+        try:
+            marks = ",".join("?" * len(SOCKS5_SOURCE_NAMES))
+            rows = conn.execute(
+                f"SELECT name, proxy_url FROM sources WHERE name IN ({marks})",
+                SOCKS5_SOURCE_NAMES).fetchall()
+            existing = next((r["proxy_url"] for r in rows if r["proxy_url"]), None)
+            existing_pw = ""
+            if existing:
+                try:
+                    existing_pw = unquote(urlsplit(existing).password or "")
+                except ValueError:
+                    existing_pw = ""
+            if username and not password and existing_pw:
+                password = existing_pw
+            if username and not password:
+                return JSONResponse(status_code=400, content={
+                    "ok": False, "error": "该 SOCKS5 需要密码：请填写密码后保存"})
+            userinfo = ""
+            if username:
+                userinfo = quote(username, safe="") + ":" + quote(password, safe="") + "@"
+            proxy_url = f"socks5://{userinfo}{host}:{port}"
+            n = 0
+            for r in rows:
+                cur = conn.execute(
+                    "UPDATE sources SET proxy_mode='proxy', proxy_url=? WHERE name=?",
+                    (proxy_url, r["name"]))
+                n += cur.rowcount
+            conn.commit()
+        finally:
+            conn.close()
+        if n == 0:
+            return JSONResponse(status_code=400, content={
+                "ok": False, "error": "没有找到 Google 源，未应用"})
+        return {"ok": True, "count": n, "masked": _mask_proxy_url(proxy_url),
+                "source_ids": list(SOCKS5_SOURCE_IDS)}
 
     @app.put("/api/sources/{source_id}")
     def update_source(source_id: str, body: dict = Body(...)):

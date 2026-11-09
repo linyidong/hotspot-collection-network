@@ -2,12 +2,13 @@
 """模块：搜索 API 封装（F-005 深挖）。职责：用 .env 的 SEARCH_API_KEY 调 Tavily
     检索，并从线索卡生成深挖检索词、按 URL 去重合并多轮结果。
     输出：results 列表 [{title,url,content,score,published_date}]。
-    关键依赖：httpx（已有）、app.config、app.db。
+    关键依赖：httpx（已有）、app.config、app.db、app.sources.registry。
     安全红线：任何日志/异常/返回值都不得包含搜索 Key 或代理凭据。"""
 import httpx
 
 from . import db
 from .config import settings
+from .sources.registry import SOURCES
 
 TAVILY_ENDPOINT = "https://api.tavily.com/search"
 MAX_QUERIES = 3                  # 每条线索卡最多检索词数
@@ -30,10 +31,23 @@ def _proxy_url() -> str:
         return p
     conn = db.get_conn()
     try:
-        row = conn.execute(
-            "SELECT proxy_url FROM sources "
-            "WHERE proxy_url IS NOT NULL AND proxy_url<>'' "
-            "ORDER BY id LIMIT 1").fetchone()
+        # 优先使用 Google×5 的代理（即「境外 SOCKS5」表单写入的地址），
+        # 避免被其它源的 HTTP 代理抢先；再退回第一条非空代理。
+        names = tuple(s.name for s in SOURCES
+                      if s.id.startswith("gnews-"))
+        if names:
+            marks = ",".join("?" * len(names))
+            row = conn.execute(
+                f"SELECT proxy_url FROM sources WHERE name IN ({marks}) "
+                "AND proxy_url IS NOT NULL AND proxy_url<>'' "
+                "ORDER BY id LIMIT 1", names).fetchone()
+        else:
+            row = None
+        if row is None:
+            row = conn.execute(
+                "SELECT proxy_url FROM sources "
+                "WHERE proxy_url IS NOT NULL AND proxy_url<>'' "
+                "ORDER BY id LIMIT 1").fetchone()
     finally:
         conn.close()
     return (row["proxy_url"] or "").strip() if row else ""

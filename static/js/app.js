@@ -1204,6 +1204,92 @@
     }
     updateHint();
   })();
+  // ===== 成本下拉（不跳转成本页） =====
+  var costBtn = $("btnCost"), costPop = $("costPop"), costBody = $("costBody");
+  var costCache = null, costCacheAt = 0, costLoading = false;
+  function fmtMoney(v, digits) {
+    var n = Number(v);
+    if (!isFinite(n)) return "—";
+    return "¥" + n.toFixed(digits == null ? 4 : digits);
+  }
+  function latestCostBatch() {
+    for (var i = 0; i < (BATCHES || []).length; i++) {
+      var b = BATCHES[i];
+      if ((b.status === "done" || b.status === "degraded") && b.stats && b.stats.cost != null) return b;
+    }
+    return null;
+  }
+  function todayStr() {
+    var d = new Date(), p = function (x) { return (x < 10 ? "0" : "") + x; };
+    return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate());
+  }
+  function renderCost(j) {
+    if (!costBody) return;
+    var b = j.budget || {};
+    var mode = b.mode || "ok";
+    var modeCn = mode === "hard" ? "硬停" : (mode === "soft" ? "软停深加工" : "正常");
+    var modeCls = mode === "hard" ? "cbad" : (mode === "soft" ? "cwarn" : "cok");
+    var today = todayStr();
+    var todayCost = 0;
+    (j.by_day || []).forEach(function (x) { if (x.date === today) todayCost = x.cost; });
+    var latest = latestCostBatch();
+    var stageName = { coarse: "粗筛", deep: "深加工", deepdive: "深挖", reanalyze: "重加工", dedup: "去重" };
+    var stages = (j.by_stage || []).filter(function (x) { return Number(x.cost) > 0; }).map(function (x) {
+      return "<span>" + esc(stageName[x.stage] || x.stage || "其它") + " " + fmtMoney(x.cost) +
+             ' <em style="color:#6b7a94">' + (x.calls || 0) + " 次</em></span>";
+    }).join("");
+    costBody.innerHTML =
+      '<div class="crow"><span>本月累计</span><b>' + fmtMoney(j.month_total || (b.spent || 0)) + "</b></div>" +
+      '<div class="crow"><span>月预算</span><b>' + fmtMoney(b.budget, 2) + "</b></div>" +
+      '<div class="crow"><span>剩余</span><b class="' + modeCls + '">' + fmtMoney(b.remaining, 2) +
+        " · " + modeCn + "</b></div>" +
+      '<div class="chr"></div>' +
+      '<div class="crow"><span>最新批次</span><b>' + (latest
+        ? ("#" + latest.id + " " + fmtMoney(latest.stats.cost))
+        : "—") + "</b></div>" +
+      '<div class="crow"><span>今日</span><b>' + fmtMoney(todayCost) + "</b></div>" +
+      '<div class="crow"><span>历史累计</span><b>' + fmtMoney(j.total) + "</b></div>" +
+      '<div class="clabel">本月阶段</div>' +
+      '<div class="cstage">' + (stages || '<span style="color:#6b7a94">本月还没有模型调用</span>') + "</div>";
+  }
+  function loadCost(force) {
+    if (!costBody) return;
+    if (!force && costCache && (Date.now() - costCacheAt) < 30000) {
+      renderCost(costCache); return;
+    }
+    if (costLoading) return;
+    costLoading = true;
+    costBody.innerHTML = '<div class="crow">读取中…</div>';
+    fetch("/api/cost?days=7", {headers: {"Accept": "application/json"}})
+      .then(function (r) { if (r.status !== 200) throw new Error("HTTP " + r.status); return r.json(); })
+      .then(function (j) { costCache = j; costCacheAt = Date.now(); renderCost(j); })
+      .catch(function (e) {
+        costBody.innerHTML = '<div class="cerr">读取失败：' + esc(e.message) +
+          '<br><button class="nav" id="costRetry">重试</button></div>';
+        var rb = $("costRetry");
+        if (rb) rb.onclick = function () { loadCost(true); };
+      })
+      .finally(function () { costLoading = false; });
+  }
+  function toggleCost(show) {
+    if (!costPop || !costBtn) return;
+    costPop.hidden = !show;
+    costBtn.setAttribute("aria-expanded", show ? "true" : "false");
+    if (show) loadCost(false);
+  }
+  if (costBtn && costPop) {
+    costBtn.onclick = function (e) {
+      e.stopPropagation();
+      toggleCost(costPop.hidden);
+    };
+    document.addEventListener("click", function (e) {
+      if (!costPop.hidden && !$("costWrap").contains(e.target)) toggleCost(false);
+    });
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape" && !costPop.hidden) toggleCost(false);
+    });
+  }
+
   // 夜间模式切换（状态在 earth.js，这里只做按钮与文案）
   var nightBtn = $("btnNight");
   function syncNightLabel() {

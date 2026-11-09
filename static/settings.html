@@ -33,6 +33,9 @@ button.ghost{background:rgba(120,180,255,.15);color:#cfe3ff;border:1px solid rgb
 .switch{display:inline-flex;align-items:center;gap:6px;cursor:pointer}
 .mlog{font-size:12px;color:#8fa3c4;margin-top:10px;line-height:1.8}
 .mlog b{font-weight:400;color:#cfe3ff}
+.s5grid{display:grid;grid-template-columns:2fr 100px 1fr 1fr;gap:8px;margin-bottom:8px}
+.s5grid input{min-width:0}
+.s5f{display:flex;flex-direction:column;gap:3px;font-size:11px;color:#8fa3c4}
 </style>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='27' fill='%230b1a2b' stroke='%2335d0e8' stroke-width='4'/%3E%3Cpath d='M5 32h54M32 5c11 11 11 43 0 54M32 5c-11 11-11 43 0 54' stroke='%2335d0e8' stroke-width='3' fill='none'/%3E%3C/svg%3E">
 </head>
@@ -115,7 +118,22 @@ button.ghost{background:rgba(120,180,255,.15);color:#cfe3ff;border:1px solid rgb
       <label>默认代理地址</label>
       <div>
         <input id="proxy_url_default" type="text" placeholder="http://127.0.0.1:7897">
-        <small>一键切代理时使用；只影响直连型源（桥接源与 Amazon 跟随系统网络）</small>
+        <small>一键切代理时使用；桥接源也支持，Amazon 榜单跟随 Chrome 网络</small>
+      </div>
+
+      <label>境外 SOCKS5 地址</label>
+      <div>
+        <div class="s5grid">
+          <label class="s5f"><span>主机 / IP</span><input id="s5_host" type="text" placeholder="proxy.example.com"></label>
+          <label class="s5f"><span>端口</span><input id="s5_port" type="number" min="1" max="65535" placeholder="端口"></label>
+          <label class="s5f"><span>用户名</span><input id="s5_user" type="text" placeholder="无认证留空" autocomplete="off"></label>
+          <label class="s5f"><span>密码</span><input id="s5_pass" type="password" placeholder="留空=沿用原密码" autocomplete="new-password"></label>
+        </div>
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+          <button id="btnSocks5" class="ghost">保存并应用到 Google×5</button>
+          <span id="s5Hint" style="font-size:12px;color:#8fa3c4">尚未配置境外 SOCKS5</span>
+        </div>
+        <small>保存后覆盖 Google×5 的代理配置；其它源仍可在下方表格逐源设置。密码不回显。</small>
       </div>
 
       <label>一键切换</label>
@@ -153,7 +171,7 @@ button.ghost{background:rgba(120,180,255,.15);color:#cfe3ff;border:1px solid rgb
       <th style="width:90px">上次条数</th><th style="width:120px">代理模式</th><th style="width:220px">代理地址</th></tr></thead>
       <tbody id="srcBody"><tr><td colspan="6" style="color:#6b7a94">加载中…</td></tr></tbody>
     </table>
-    <small>代理只填本地代理软件地址（如 http://127.0.0.1:7897）；本项目不解析订阅链接。</small>
+    <small>表格按「直连 → 代理」排序；代理只填本地代理软件地址（如 http://127.0.0.1:7897）；本项目不解析订阅链接。</small>
     <div style="margin-top:10px;font-size:12px;line-height:1.8;color:#9fb4d8;background:rgba(120,180,255,.06);
          border:1px solid rgba(120,180,255,.18);border-radius:6px;padding:10px 12px">
       <b>代理怎么配才互不影响：</b><br>
@@ -193,7 +211,13 @@ button.ghost{background:rgba(120,180,255,.15);color:#cfe3ff;border:1px solid rgb
 
   function renderSources(list) {
     SRCS = list;
-    $("srcBody").innerHTML = list.map(function (s, i) {
+    // 只改设置页显示顺序：直连源在前，代理源在后；后台/大屏顺序不变
+    var ordered = list.slice().sort(function (a, b) {
+      var ap = a.proxy_mode === "proxy" ? 1 : 0;
+      var bp = b.proxy_mode === "proxy" ? 1 : 0;
+      return ap - bp;
+    });
+    $("srcBody").innerHTML = ordered.map(function (s, i) {
       var isProxy = s.proxy_mode === "proxy";
       var stale = !!s.stale;   // 快照过期与上游失败分开显示：黄=数据旧，红=抓取失败（T9-A）
       var st = stale ? '<span class="warn">● 快照过期</span>'
@@ -239,11 +263,57 @@ button.ghost{background:rgba(120,180,255,.15);color:#cfe3ff;border:1px solid rgb
       .catch(function () { renderModelLog([]); });
   }
 
+  function refreshSources() {
+    return fetch("/api/sources").then(function (r) { return r.json(); })
+      .then(function (j) { renderSources(j.sources || []); });
+  }
+
+  function loadSocks5() {
+    var hint = $("s5Hint");
+    fetch("/api/sources/socks5").then(function (r) { return r.json(); }).then(function (j) {
+      if (!j.configured) { if (hint) hint.textContent = "尚未配置境外 SOCKS5"; return; }
+      $("s5_host").value = j.host || "";
+      $("s5_port").value = j.port || "";
+      $("s5_user").value = j.username || "";
+      $("s5_pass").value = "";
+      if (hint) hint.textContent = "已关联 Google×5：" + (j.masked || "") +
+        (j.password_set ? "（密码已保存，不回显；留空保存=沿用）" : "");
+    }).catch(function () { if (hint) hint.textContent = "读取境外 SOCKS5 失败"; });
+  }
+
+  var s5btn = $("btnSocks5");
+  if (s5btn) {
+    s5btn.onclick = function () {
+      var host = $("s5_host").value.trim();
+      var port = $("s5_port").value.trim();
+      var user = $("s5_user").value.trim();
+      var pass = $("s5_pass").value;
+      var hint = $("s5Hint");
+      if (!host || !port) { hint.textContent = "请填写主机/IP 和端口"; hint.className = "bad"; return; }
+      s5btn.disabled = true;
+      hint.textContent = "保存中…"; hint.className = "";
+      fetch("/api/sources/socks5", {
+        method: "POST", headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({host: host, port: port, username: user, password: pass})
+      }).then(function (r) { return r.json(); }).then(function (j) {
+        if (!j.ok) { hint.textContent = "保存失败：" + (j.error || "未知"); hint.className = "bad"; return; }
+        $("s5_pass").value = "";
+        hint.textContent = "已应用到 " + j.count + " 个 Google 源：" + (j.masked || "") +
+          "（密码不回显）";
+        hint.className = "ok";
+        refreshSources();
+      }).catch(function (e) {
+        hint.textContent = "保存失败：" + e.message; hint.className = "bad";
+      }).finally(function () { s5btn.disabled = false; });
+    };
+  }
+
   function load() {
     fetch("/api/settings").then(function (r) { return r.json(); }).then(function (j) {
       fillForm(j.settings || {});
     });
     loadModelLog();
+    loadSocks5();
     fetch("/api/sources").then(function (r) { return r.json(); }).then(function (j) {
       renderSources(j.sources || []);
     });
