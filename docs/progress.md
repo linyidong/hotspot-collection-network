@@ -51,7 +51,7 @@
 
 ## 四、待确认事项
 
-1. **Amazon 榜单 Chrome 不可用**：`/Applications/Google Chrome.app` 只有 `launcher`；快照已如实标 stale（395 小时），但仍需安装真 Chrome 才能刷新。
+1. **Amazon 榜单 Chrome**：已通过 Playwright Chrome for Testing 自动识别并恢复（2026-11-09，3 榜各 20 条，is_fresh=true）；无需安装系统 Chrome。
 2. **Google ×5 无代理**：本机无代理，每轮 ConnectTimeout + 必应降级失败，批次会 degraded（15/20）；需要代理或换可达源。
 3. **候选池上限 200 / 按 potential 淘汰**是否实现（与 PRD「不丢弃」有冲突）。
 4. **F-004 的 `opportunity_type` 6 类字段**：PRD 要求，实际粗筛未输出该字段；是补字段还是改 PRD 描述？
@@ -189,3 +189,5 @@
 | 2026-11-09 08:30 | **T9-C 桥接源代理（Trae，提交 65e8bc1）**：桥 `server.py` 的 `fetch_json`/5 个 handler/`get_jin10_public_headers` 支持 `proxy` 参数（缓存 key 含 proxy）；桥接源请求带 `?proxy=`；非法代理 400、代理失败 502 中文原因；`collect._build_source` 把 proxy 传给 `RssBridgeSource`；设置页说明改为「桥接源支持 http/https，socks5 不支持」。实测：直连财联社 50 条、非法代理 400、死代理 0.02s 返 502、桥 `/healthz` 仍 200、直连源 fetch 50 条、代理源抛中文错误 |
 | 2026-11-09 08:32 | 自查补修：桥在上游失败时返回 HTTP 200 的 error RSS（guid=error_/标题 temporarily unavailable），原 `RssBridgeSource` 会当假新闻；现识别并抛中文错误（本地错误 RSS 实测）。HTTP 非 200 时也把桥返回的中文原因带进异常 |
 | 2026-11-09 08:33 | 当前：服务 screen hcn 常驻，MAX(batches.id)=65，下一轮 11:00；本月已花 ¥1.462201（含测试事故 ¥0.016479），总账本 ¥25.293221；Google×5 无代理仍失败、Amazon 快照 stale 395h 已黄标；Chrome 未安装 |
+| 2026-11-09 08:35 | **T12-Chrome（Trae，提交 81228c1）**：`app/platform.py` 在无系统 Chrome 时自动识别 Playwright 缓存（`~/Library/Caches/ms-playwright/chromium-*/.../Google Chrome for Testing` + headless-shell，按版本倒序）；实测 Amazon 3 榜各 20 条、errors 空、ts=08:34、`is_fresh(20)=True`；服务重启后 `/api/sources` Amazon `stale=false`、age=0，大屏 3 行恢复绿色。未跑整轮、未调 LLM，MAX(batches.id)=65 |
+| 2026-11-09 08:36 | 当前：服务 screen hcn 常驻（127.0.0.1:9000），下一轮 11:00；MAX(batches.id)=65；本月已花 ¥1.462201；Amazon 已恢复实时，Google×5 仍无代理失败；桥接源代理已完成；仍缺深挖/Google 代理/候选池决策/真实使用 |

@@ -169,7 +169,7 @@ cp .env.example .env
 | 数据位置 | `data/app.db` | 相同（项目内相对路径） |
 
 > 平台榜单抓取（T12 C 方案）已支持 macOS/Linux 的 Chrome 路径；
-> 若没装 Chrome，只影响 3 个 Amazon 榜单源，其余 15 个源照常工作。
+> 若没装 Chrome，`app/platform.py` 会自动使用 Playwright 缓存的 Chrome for Testing；只影响 3 个 Amazon 榜单源，其余 15 个源照常工作。
 
 ### 4. 常见问题（macOS）
 
@@ -222,7 +222,7 @@ cp .env.example .env
 - **详情页**：显示加工模型、本条花费、加工时间；rejected/failed 有「重新加工」按钮（ok 条目服务端也会拒绝，防止重复烧钱）；取消收藏需页面内二次确认。
 - **备忘录/收藏**：备忘录支持阶段（S1–S4）+ 行业筛选；收藏支持按标题或备注搜索。
 - **采集来源**：失败源红字并显示原因；Amazon 榜单读本地快照，过期时黄色「快照过期」并显示真实年龄，不再假绿。
-- **已知环境限制**：本机 `/Applications/Google Chrome.app` 只有 launcher，Amazon 快照会保持「快照过期」直到安装真 Chrome；Google×5 无代理时会 ConnectTimeout，批次显示 degraded（15/20），这是真实状态，不是静默失败。
+- **已知环境限制**：本机已自动识别 Playwright 的 Chrome for Testing，Amazon 3 个榜单已恢复实时（2026-11-09 实测 3×20 条）；Google×5 无代理时仍 ConnectTimeout，批次显示 degraded（15/20），这是真实状态，不是静默失败。
 
 ## 网络与采集模式（换网络后两步搞定）
 
