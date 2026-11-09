@@ -254,6 +254,7 @@ cp .env.example .env
 - 「直连/代理」按钮对**直连型源**生效（见闻 3 频道、新浪、Google 新闻 ×5、微博）
 - 桥接型源（财联社/东财/同花顺/金十/见闻RSS）由 8053 桥进程抓取，**现已支持 http/https/socks5 代理**（socks5 需 socksio，已写入 requirements）
 - 平台榜单（Amazon）由本机 Chrome 抓取，仍不吃单源设置
+- **代理凭据不会明文显示**：API/设置页只显示 `scheme://***:***@host:port`，留空保存会保留原代理
 
 ## 五、如何改提示词
 
