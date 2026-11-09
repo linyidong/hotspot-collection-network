@@ -515,6 +515,20 @@ ROUTES = {
     '/wallstreetcn/live': ('Wallstreetcn Live (华尔街见闻快讯)', handle_wallstreetcn_live),
 }
 
+def _mask_proxy(proxy):
+    """Show scheme://***:***@host:port so errors never leak proxy credentials."""
+    try:
+        u = urlparse(str(proxy))
+        host = u.hostname or ''
+        if u.port:
+            host += f':{u.port}'
+        if u.username is not None or u.password is not None:
+            return f'{u.scheme}://***:***@{host}'
+        return f'{u.scheme}://{host}'
+    except Exception:
+        return '***'
+
+
 ROUTE_META = {
     '/cls/telegraph': ('财联社电报', 'https://www.cls.cn/telegraph', '财联社实时快讯'),
     '/eastmoney/kuaixun': ('东方财富快讯', 'https://kuaixun.eastmoney.com/', '东方财富7x24快讯'),
@@ -637,7 +651,7 @@ class RSSHandler(BaseHTTPRequestHandler):
                 error_text = str(exc) or exc.__class__.__name__
                 self._send_text(
                     502, 'text/plain; charset=utf-8',
-                    f'代理抓取失败（{title}）：通过代理 {proxy} 请求上游未成功。'
+                    f'代理抓取失败（{title}）：通过代理 {_mask_proxy(proxy)} 请求上游未成功。'
                     f'原因：{error_text}。请检查代理地址是否可用（支持 http/https/socks5）。',
                     cache=False, write_body=write_body)
                 return

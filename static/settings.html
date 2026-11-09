@@ -198,6 +198,7 @@ button.ghost{background:rgba(120,180,255,.15);color:#cfe3ff;border:1px solid rgb
       var note = "";
       if (s.last_error) note += '<div class="srcnote bad">异常：' + esc(s.last_error) + '</div>';
       if (stale) note += '<div class="srcnote warn">快照过期：' + esc(s.stale_reason || "快照数据已过期") + '</div>';
+      var ph = s.proxy_url_set ? ("已设置（密码不显示）：" + (s.proxy_url || "")) : "http://127.0.0.1:7897";
       return '<tr data-id="' + esc(s.id) + '">' +
         '<td><input type="checkbox" class="en" ' + (s.enabled ? "checked" : "") + '></td>' +
         '<td>' + esc(s.name) + note + '</td>' +
@@ -205,14 +206,16 @@ button.ghost{background:rgba(120,180,255,.15);color:#cfe3ff;border:1px solid rgb
         '<td>' + (s.last_count || 0) + '</td>' +
         '<td><select class="pm"><option value="direct"' + (!isProxy ? " selected" : "") +
         '>直连</option><option value="proxy"' + (isProxy ? " selected" : "") + '>代理</option></select></td>' +
-        '<td><input class="pu" placeholder="http://127.0.0.1:7897" value="' +
-        esc(s.proxy_url || "") + '"' + (isProxy ? "" : " disabled") + '></td></tr>';
+        '<td><input class="pu" placeholder="' + esc(ph) + '" value="" data-set="' +
+        (s.proxy_url_set ? "1" : "0") + '"' + (isProxy ? "" : " disabled") + '></td></tr>';
     }).join("");
     Array.prototype.forEach.call($("srcBody").querySelectorAll("select.pm"), function (sel) {
       sel.addEventListener("change", function () {
         var inp = sel.closest("tr").querySelector("input.pu");
         inp.disabled = sel.value !== "proxy";
-        if (sel.value === "proxy" && !inp.value) inp.value = "http://127.0.0.1:7897";
+        if (sel.value === "proxy" && !inp.value && inp.getAttribute("data-set") !== "1") {
+          inp.value = "http://127.0.0.1:7897";
+        }
       });
     });
   }
@@ -248,7 +251,8 @@ button.ghost{background:rgba(120,180,255,.15);color:#cfe3ff;border:1px solid rgb
     FIELDS.forEach(function (k) {
       if (!$(k)) return;
       var v = $(k).value;
-      payload[k] = (k === "coarse_model" || k === "deep_model") ? v : Number(v);
+      payload[k] = (k === "coarse_model" || k === "deep_model" ||
+                    k === "proxy_url_default") ? v : Number(v);
     });
     msg("保存中…", true);
     fetch("/api/settings", {

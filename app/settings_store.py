@@ -39,6 +39,7 @@ _RULES = {
     "budget_stop_ratio": (float, (0, 1)),
     "budget_hard_ratio": (float, (0, 1)),
     "item_retention_days": (int, (1, 3650)),
+    "proxy_url_default": (str, None),
 }
 
 
@@ -81,6 +82,11 @@ def save(updates: dict) -> tuple:
         data[key] = name
     if data["budget_hard_ratio"] >= data["budget_stop_ratio"]:
         return False, "硬停阈值必须小于软停阈值（hard < stop）"
+    pdefault = str(data.get("proxy_url_default") or "").strip()
+    if pdefault and not pdefault.startswith(("http://", "https://", "socks5://", "socks5h://", "socks://")):
+        return False, ("proxy_url_default 必须以 http://、https://、socks5:// 或 socks5h:// 开头，"
+                       "例如 socks5://127.0.0.1:1080")
+    data["proxy_url_default"] = pdefault
     CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
     tmp = CONFIG_PATH.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")

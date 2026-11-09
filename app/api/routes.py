@@ -7,6 +7,7 @@ import json
 import threading
 import time
 from datetime import datetime
+from urllib.parse import urlsplit
 
 from fastapi import Body, FastAPI
 from fastapi.responses import FileResponse, JSONResponse
@@ -24,6 +25,23 @@ TABLES = ("sources", "batches", "items", "analyses", "notes",
           "favorites", "llm_calls", "config")
 
 PROXY_MODES = ("direct", "proxy")
+
+
+def _mask_proxy_url(url) -> str | None:
+    """代理地址脱敏：有 user:pass 时只显示 scheme://***:***@host:port。
+    配置/日志/API 一律不返回明文密码（docs/人工参数 §4）。"""
+    if not url:
+        return None
+    try:
+        p = urlsplit(str(url))
+    except ValueError:
+        return "***"
+    if p.username is None and p.password is None:
+        return p._replace(fragment="").geturl()
+    host = p.hostname or ""
+    if p.port:
+        host += f":{p.port}"
+    return f"{p.scheme}://***:***@{host}"
 
 
 def _adjust_batch_stats(conn, batch_id, old_status, new_status,
@@ -181,7 +199,8 @@ def _load_sources() -> list:
             "url": spec.url,
             "enabled": (row["enabled"] if row else 1) == 1,
             "proxy_mode": row["proxy_mode"] if row else "direct",
-            "proxy_url": row["proxy_url"] if row else None,
+            "proxy_url": _mask_proxy_url(row["proxy_url"] if row else None),
+            "proxy_url_set": bool(row and row["proxy_url"]),
             "last_ok_at": row["last_ok_at"] if row else None,
             "last_error": row["last_error"] if row else None,
             "last_count": row["last_count"] if row else 0,
@@ -411,8 +430,13 @@ def create_app() -> FastAPI:
             return {"ok": False, "error": "enabled 必须是 true/false"}
         if proxy_mode is not None and proxy_mode not in PROXY_MODES:
             return {"ok": False, "error": "proxy_mode 必须是 direct 或 proxy"}
-        if proxy_mode == "proxy" and proxy_url:
-            u = str(proxy_url).strip()
+
+        # 代理地址：允许 socks:// 别名；含 *** 的值是脱敏显示，视为“不修改”
+        u = str(proxy_url or "").strip()
+        if u.startswith("socks://"):
+            u = "socks5://" + u[len("socks://"):]
+        masked = "***" in u
+        if proxy_mode == "proxy" and u and not masked:
             if not (u.startswith("http://") or u.startswith("https://")
                     or u.startswith("socks5://") or u.startswith("socks5h://")) or " " in u:
                 return JSONResponse(status_code=400, content={
@@ -423,9 +447,12 @@ def create_app() -> FastAPI:
         conn = db.get_conn()
         try:
             row = conn.execute(
-                "SELECT id FROM sources WHERE name=?", (spec.name,)).fetchone()
+                "SELECT id, proxy_url FROM sources WHERE name=?", (spec.name,)).fetchone()
             if row is None:
                 return {"ok": False, "error": f"源未初始化：{spec.name}"}
+            if proxy_mode == "proxy" and not u and not row["proxy_url"]:
+                return JSONResponse(status_code=400, content={
+                    "ok": False, "error": "选择代理模式时必须填写代理地址（如 socks5://127.0.0.1:1080）"})
             sets, vals = [], []
             if enabled is not None:
                 sets.append("enabled=?")
@@ -433,9 +460,9 @@ def create_app() -> FastAPI:
             if proxy_mode is not None:
                 sets.append("proxy_mode=?")
                 vals.append(proxy_mode)
-            if proxy_mode == "proxy" and proxy_url:
+            if proxy_mode == "proxy" and u and not masked:
                 sets.append("proxy_url=?")
-                vals.append(str(proxy_url))
+                vals.append(u)
             if proxy_mode == "direct":
                 sets.append("proxy_url=NULL")
             if sets:
@@ -625,8 +652,9 @@ def create_app() -> FastAPI:
             conn.commit()
         finally:
             conn.close()
-        return {"ok": True, "mode": mode, "proxy_url": proxy_url, "changed": changed,
-                "note": "只影响直连型源；桥接源与 Amazon 榜单跟随系统网络"}
+        return {"ok": True, "mode": mode, "proxy_url": _mask_proxy_url(proxy_url),
+                "changed": changed,
+                "note": "只影响直连型/桥接型源；Amazon 榜单跟随系统网络"}
 
     @app.post("/api/sources/set-proxy")
     def set_proxy(payload: dict = Body(default={})):
@@ -653,7 +681,7 @@ def create_app() -> FastAPI:
             conn.commit()
         finally:
             conn.close()
-        return {"ok": True, "count": n, "proxy_url": proxy_url}
+        return {"ok": True, "count": n, "proxy_url": _mask_proxy_url(proxy_url)}
 
     # ---------------- 源体检（异地/换网络后一键检查） ----------------
     @app.post("/api/sources/check")
