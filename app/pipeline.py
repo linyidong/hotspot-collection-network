@@ -347,7 +347,7 @@ def run_once(deep_limit: int = None, trigger: str = "手动") -> dict:
              "sources_ok": 0, "sources_failed": 0,
              "failed_sources": [], "budget_stop": "ok", "deep_skipped_budget": 0,
              "candidate_pool_added": 0, "candidate_pool_evicted": 0,
-             "candidate_pool_total": 0}
+             "candidate_pool_total": 0, "manual_promotions": 0}
     try:
         # 0) 轮首预算熔断检查（hard → 整轮不调用任何模型；soft → 只跑粗筛）
         budget_mode = budget.status(conn=conn)["mode"]

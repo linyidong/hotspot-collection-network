@@ -126,8 +126,11 @@ def main():
     # ---------- F-005 深加工 ----------
     deep_ok = st.get("deep_ok", 0)
     cand = st.get("deep_candidates", 0)
-    add("T-040", "深加工条数 = min(合格数, 限额)", "通过" if cand <= 10 else "未通过",
-        f"批次 #{b['id']} 候选 {cand}、限额 10、实际处理 {deep_ok + st.get('deep_rejected', 0)}")
+    manual = st.get("manual_promotions", 0) or 0
+    auto_cand = max(0, cand - manual)
+    add("T-040", "自动深加工条数 = min(合格数, 限额)", "通过" if auto_cand <= 10 else "未通过",
+        f"批次 #{b['id']} 候选 {cand}（含手动提级 {manual}）、限额 10、"
+        f"自动候选 {auto_cand}、处理 {deep_ok + st.get('deep_rejected', 0)}")
     skipped_max = 0
     for r in c.execute("SELECT stats_json FROM batches WHERE stats_json IS NOT NULL "
                        "ORDER BY id DESC LIMIT 8").fetchall():

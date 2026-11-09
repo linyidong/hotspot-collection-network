@@ -52,7 +52,8 @@ def _mask_proxy_url(url) -> str | None:
 
 def _adjust_batch_stats(conn, batch_id, old_status, new_status,
                         cost_delta, old_reasons, new_reasons,
-                        skipped_delta=0, candidates_delta=0, pool_delta=0) -> bool:
+                        skipped_delta=0, candidates_delta=0, pool_delta=0,
+                        manual_delta=0) -> bool:
     """按一次深加工重跑调整 batches.stats_json（T8：重加工后批次账必须同步）。
     输入：批次 id、旧/新 deep 状态（ok/rejected/failed/None=从未深加工）、
     本次新调用成本 cost_delta、旧/新拒绝原因。
@@ -106,6 +107,10 @@ def _adjust_batch_stats(conn, batch_id, old_status, new_status,
         cur = stats.get("candidate_pool_total")
         cur = int(cur) if isinstance(cur, (int, float)) else 0
         stats["candidate_pool_total"] = max(0, cur + int(pool_delta))
+    if manual_delta:
+        cur = stats.get("manual_promotions")
+        cur = int(cur) if isinstance(cur, (int, float)) else 0
+        stats["manual_promotions"] = max(0, cur + int(manual_delta))
 
     conn.execute("UPDATE batches SET stats_json=? WHERE id=?",
                  (json.dumps(stats, ensure_ascii=False), batch_id))
@@ -492,7 +497,8 @@ def create_app() -> FastAPI:
                 "ok": False, "error": f"提级失败：{type(exc).__name__}: {str(exc)[:160]}"})
         conn = db.get_conn()
         try:
-            payload = {"card": res["card"], "reasons": res["reasons"]}
+            payload = {"card": res["card"], "reasons": res["reasons"],
+                       "manual": True, "promoted_from": "candidate_pool"}
             conn.execute(
                 "INSERT INTO analyses(item_id, stage, model, payload_json, status, cost, created_at) "
                 "VALUES(?,?,?,?,?,?,?)",
@@ -502,7 +508,8 @@ def create_app() -> FastAPI:
             candidates_mod.remove(conn, item_id)
             _adjust_batch_stats(conn, c["batch_id"], None, res["status"],
                                 res["cost"], [], res["reasons"],
-                                skipped_delta=-1, candidates_delta=1, pool_delta=-1)
+                                skipped_delta=-1, candidates_delta=1, pool_delta=-1,
+                                manual_delta=1)
             conn.commit()
         finally:
             conn.close()
