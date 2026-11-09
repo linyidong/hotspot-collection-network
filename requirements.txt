@@ -5,3 +5,4 @@ feedparser>=6.0
 apscheduler>=3.10
 openai>=1.35.0
 python-dotenv>=1.0.0
+socksio>=0.2.0          # httpx 的 SOCKS5 代理支持

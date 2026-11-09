@@ -58,10 +58,13 @@ def fetch_json(url, headers=None, proxy=None):
 
     req = Request(url, headers=headers or {})
     if proxy:
-        opener = urllib.request.build_opener(
-            urllib.request.ProxyHandler({'http': proxy, 'https': proxy}))
-        with opener.open(req, timeout=REQUEST_TIMEOUT) as resp:
-            data = resp.read().decode('utf-8')
+        # 用 httpx 而不是 urllib：httpx 通过 socksio 原生支持 socks5://，urllib 不支持。
+        import httpx
+        with httpx.Client(proxy=proxy, timeout=REQUEST_TIMEOUT,
+                          follow_redirects=True) as client:
+            resp = client.get(url, headers=headers or {})
+            resp.raise_for_status()
+            data = resp.text
     else:
         with urlopen(req, timeout=REQUEST_TIMEOUT) as resp:
             data = resp.read().decode('utf-8')
@@ -618,11 +621,11 @@ class RSSHandler(BaseHTTPRequestHandler):
     def _serve_feed(self, path, base_url, proxy=None, write_body=True):
         _, handler = ROUTES[path]
         feed_url = base_url + path
-        if proxy and not (proxy.startswith('http://') or proxy.startswith('https://')):
+        if proxy and not proxy.startswith(('http://', 'https://', 'socks5://', 'socks5h://')):
             self._send_text(
                 400, 'text/plain; charset=utf-8',
-                'proxy 参数无效：只支持 http/https 代理（socks5 不支持）；'
-                '代理地址必须以 http:// 或 https:// 开头。',
+                'proxy 参数无效：只支持 http/https/socks5 代理；'
+                '代理地址必须以 http://、https://、socks5:// 或 socks5h:// 开头。',
                 cache=False, write_body=write_body)
             return
         try:
@@ -635,7 +638,7 @@ class RSSHandler(BaseHTTPRequestHandler):
                 self._send_text(
                     502, 'text/plain; charset=utf-8',
                     f'代理抓取失败（{title}）：通过代理 {proxy} 请求上游未成功。'
-                    f'原因：{error_text}。请检查代理地址是否可用（仅支持 http/https 代理）。',
+                    f'原因：{error_text}。请检查代理地址是否可用（支持 http/https/socks5）。',
                     cache=False, write_body=write_body)
                 return
             xml = generate_error_rss(title, link, description, exc, feed_url=feed_url)

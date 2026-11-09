@@ -2,7 +2,7 @@
 """模块：本地 RSS 桥源。职责：从本机 china-finance-rss 桥（127.0.0.1:8053）
     拉取国内源（财联社/东财/同花顺/金十/华尔街见闻RSS）的 RSS 并解析为 RawItem。
     超时 20 秒，桥不可达抛中文异常。配置 proxy_url 时在请求 URL 追加 ?proxy=，
-    由桥按本源走 http/https 代理抓取；直连时 URL 不变。
+    由桥按本源走 http/https/socks5 代理抓取；直连时 URL 不变。
     关键依赖：httpx、feedparser、app.sources.base。"""
 from datetime import datetime
 from urllib.parse import urlencode
