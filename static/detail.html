@@ -265,6 +265,17 @@ button[disabled]{opacity:.55;cursor:default}
       dd.reasons.forEach(function (r) { h += '<li class="err">' + esc(r) + "</li>"; });
       h += "</ul>";
     }
+    // 未通过证据校验：只展示原因与检索信息，绝不展示未核实的买家/报价
+    if (dd.status !== "ok") {
+      h += '<div class="warnbox" style="margin-top:10px">' +
+           "本次深挖未通过证据校验，未核实的买家与报价已隐藏。" +
+           "可重试，或按 limits 的缺口继续人工核实。</div>";
+      if (dd.search_queries && dd.search_queries.length) {
+        h += '<div class="hint" style="margin-top:8px">检索词：' +
+             esc(dd.search_queries.join(" ｜ ")) + "</div>";
+      }
+      return h;
+    }
     if (d.summary) h += '<div class="big">' + esc(d.summary) + "</div>";
     if (!buyers.length && !quotes.length) {
       h += '<p class="hint">本次检索未找到可核实的具体买家/报价。</p>';

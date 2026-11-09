@@ -91,6 +91,11 @@ def _validate(data: dict, results: list) -> list:
                 reasons.append(f"quote_references[{i}] 来源链接不在本次检索结果中：{url or '（空）'}")
                 continue
             if price:
+                # 报价必须有货币单位/符号；否则「0.005 毫米」这类精度数字会被误当报价
+                if not re.search(r"(美元|美金|人民币|元|欧元|日元|英镑|港元|USD|RMB|CNY|EUR|JPY|GBP|HKD|[$¥€£])",
+                                 price, re.I):
+                    reasons.append(f"报价缺少货币单位/符号，不能算报价：「{price}」")
+                    continue
                 nums = re.findall(r"\d+(?:\.\d+)?", price)
                 text = by_url[url]["title"] + " " + by_url[url]["content"]
                 if not nums or not all(n in text for n in nums):
