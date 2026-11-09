@@ -1,6 +1,6 @@
 <!DOCTYPE html>
-<!-- 模块：备忘录与收藏页。职责：列出我的备注（支持搜索 + 阶段/行业筛选）与收藏条目（支持搜索标题/备注）。
-     数据来源：GET /api/notes?q=&stage=&vertical= 、GET /api/favorites?q=；零外部依赖。 -->
+<!-- 模块：备忘录与收藏页。职责：列出我的备注（搜索 + 阶段/行业/机会类型筛选）与收藏（搜索 + 机会类型）。
+     数据来源：GET /api/notes、/api/favorites；零外部依赖。 -->
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
@@ -49,6 +49,19 @@ select{background:#0b1420;color:#cdd9ee;border:1px solid rgba(120,180,255,.25);
     <div class="tab" data-tab="fav">收藏 <span id="cntF"></span></div>
   </div>
   <input id="q" type="search" placeholder="搜索备注内容或标题…">
+  <div class="filters" id="typeFilter">
+    <span class="flabel">机会类型：</span>
+    <select id="otype">
+      <option value="">全部类型</option>
+      <option>跨境贸易差价</option>
+      <option>政策/补贴红利</option>
+      <option>平台规则变化带来的套利</option>
+      <option>新技术落地早期</option>
+      <option>消费趋势</option>
+      <option>供应链缺货</option>
+      <option value="none">未分类 / 认输</option>
+    </select>
+  </div>
   <div class="filters" id="filters">
     <span class="flabel">阶段：</span>
     <span class="chip on" data-stage="">全部</span>
@@ -70,12 +83,13 @@ select{background:#0b1420;color:#cdd9ee;border:1px solid rgba(120,180,255,.25);
 <script>
 (function () {
   var tab = "notes";
-  var stage = "", vertical = "";
+  var stage = "", vertical = "", otype = "";
   var loadSeq = 0;   // 防止快速输入/切换时旧响应覆盖新结果
   var list = document.getElementById("list");
   var q = document.getElementById("q");
   var filters = document.getElementById("filters");
   var vertSel = document.getElementById("vert");
+  var otypeSel = document.getElementById("otype");
 
   function esc(s) {
     return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) {
@@ -85,17 +99,19 @@ select{background:#0b1420;color:#cdd9ee;border:1px solid rgba(120,180,255,.25);
   function fmt(t) { return t ? String(t).slice(0, 16) : "—"; }
 
   function tagsHtml(r) {
-    if (r.stage || r.vertical) {
+    if (r.stage || r.vertical || r.opportunity_type) {
       var h = '<div class="tags">';
       if (r.stage) h += '<span class="chip">' + esc(r.stage) + "</span>";
       if (r.vertical) h += '<span class="chip">' + esc(r.vertical) + "</span>";
+      if (r.opportunity_type) h += '<span class="chip">' + esc(r.opportunity_type) + "</span>";
       return h + "</div>";
     }
     return '<div class="tags"><span class="chip dim">未标注</span></div>';
   }
 
   function render(rows, isNotes) {
-    var filtered = isNotes ? !!(q.value.trim() || stage || vertical) : !!q.value.trim();
+    var filtered = isNotes ? !!(q.value.trim() || stage || vertical || otype)
+                           : !!(q.value.trim() || otype);
     if (!rows.length) {
       var msg;
       if (filtered) {
@@ -136,8 +152,10 @@ select{background:#0b1420;color:#cdd9ee;border:1px solid rgba(120,180,255,.25);
     var kw = encodeURIComponent(q.value.trim());
     var url = tab === "notes"
       ? "/api/notes?limit=200&q=" + kw + "&stage=" + encodeURIComponent(stage) +
-        "&vertical=" + encodeURIComponent(vertical)
-      : "/api/favorites?limit=200&q=" + kw;
+        "&vertical=" + encodeURIComponent(vertical) +
+        "&opportunity_type=" + encodeURIComponent(otype)
+      : "/api/favorites?limit=200&q=" + kw +
+        "&opportunity_type=" + encodeURIComponent(otype);
     fetch(url).then(function (r) {
       return r.json().then(function (j) { return {code: r.status, j: j}; });
     }).then(function (res) {
@@ -182,6 +200,7 @@ select{background:#0b1420;color:#cdd9ee;border:1px solid rgba(120,180,255,.25);
     });
   });
   vertSel.addEventListener("change", function () { vertical = vertSel.value; load(); });
+  otypeSel.addEventListener("change", function () { otype = otypeSel.value; load(); });
   q.addEventListener("input", load);
   load();
 })();

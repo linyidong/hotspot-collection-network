@@ -144,6 +144,39 @@ def main():
     add("T-042", "单条深加工 ≤0.08 元", "通过" if (row["m"] or 0) <= 0.08 else "未通过",
         f"历史单条最高 ¥{(row['m'] or 0):.4f}")
 
+    # ---------- F-004 六类机会类型 / 候选池 ----------
+    try:
+        from app.opportunity import OPPORTUNITY_TYPES
+        from app.pipeline import _parse_coarse_output
+        good = _parse_coarse_output(
+            '{"is_economic": true, "opportunity_type": "跨境贸易差价", '
+            '"anchors": {"country": "越南", "category": "手机壳"}, "potential": 70}')
+        invalid_rejected = False
+        try:
+            _parse_coarse_output(
+                '{"is_economic": true, "opportunity_type": "第七类", '
+                '"anchors": {}, "potential": 50}')
+        except ValueError:
+            invalid_rejected = True
+        add("T-054", "F-004 六类枚举，自创第 7 类被拒",
+            "通过" if good.get("opportunity_type") in OPPORTUNITY_TYPES and invalid_rejected else "未通过",
+            "合法类型通过；自创「第七类」ValueError")
+    except Exception as exc:
+        add("T-054", "F-004 六类枚举，自创第 7 类被拒", "未通过", f"{type(exc).__name__}: {exc}")
+    try:
+        from app import candidates as cand_mod
+        cp = cand_mod.list_items(limit=1)
+        add("T-055", "候选池上限 200 且有查询接口",
+            "通过" if cp.get("cap") == 200 and cp.get("total", 0) <= 200 else "未通过",
+            f"当前 {cp.get('total', 0)} / {cp.get('cap')}；GET /api/candidates")
+    except Exception as exc:
+        add("T-055", "候选池上限 200 且有查询接口", "未通过", f"{type(exc).__name__}: {exc}")
+    manual_n = c.execute(
+        "SELECT COUNT(*) c FROM analyses WHERE stage='deep' "
+        "AND payload_json LIKE '%\"manual\": true%'").fetchone()["c"]
+    add("T-056", "手动提级有审计标记", "通过" if manual_n > 0 else "未执行",
+        f"deep 分析中 manual=true 共 {manual_n} 条")
+
     # ---------- F-006 校验（用 validate 直接构造样本） ----------
     try:
         from app.validate import validate_deep_card

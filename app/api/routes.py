@@ -444,9 +444,9 @@ def create_app() -> FastAPI:
             conn.close()
 
     @app.get("/api/candidates")
-    def candidate_list(limit: int = 50):
-        """候选池：超出深加工限额的粗筛合格条目（最多 200）。"""
-        return candidates_mod.list_items(limit)
+    def candidate_list(limit: int = 50, offset: int = 0, q: str = ""):
+        """候选池：超出深加工限额的粗筛合格条目（最多 200），支持分页/搜索。"""
+        return candidates_mod.list_items(limit=limit, offset=offset, q=q)
 
     @app.post("/api/candidates/{item_id}/promote")
     def promote_candidate(item_id: int):
@@ -1260,17 +1260,22 @@ def create_app() -> FastAPI:
             conn.close()
 
     @app.get("/api/notes")
-    def list_notes(q: str = "", limit: int = 100, stage: str = "", vertical: str = ""):
-        """备注列表：q 匹配备注内容或标题；stage/vertical 按该条目最新一条
-        深加工卡的 $.card.stage / $.card.anchor.vertical 筛选（空=全部）。
-        每条返回 stage/vertical 字段（无深加工为 null）。非法值 400 中文错误。"""
+    def list_notes(q: str = "", limit: int = 100, stage: str = "",
+                   vertical: str = "", opportunity_type: str = ""):
+        """备注列表：q 匹配备注内容或标题；stage/vertical 按最新深加工卡；
+        opportunity_type 按最新粗筛结果的 F-004 六类筛选（空=全部）。
+        每条返回 stage/vertical/opportunity_type。非法值 400 中文错误。"""
         from ..validate import VERTICALS
+        from ..opportunity import ALLOWED as OT_ALLOWED
         if stage and stage not in ("S1", "S2", "S3", "S4"):
             return JSONResponse(status_code=400, content={
                 "error": f"非法的阶段值「{stage}」：只支持 S1/S2/S3/S4 或留空（全部）"})
         if vertical and vertical not in VERTICALS:
             return JSONResponse(status_code=400, content={
                 "error": "非法的行业值：" + "、".join(VERTICALS) + " 之一，或留空（全部）"})
+        if opportunity_type and opportunity_type not in OT_ALLOWED:
+            return JSONResponse(status_code=400, content={
+                "error": "非法的机会类型：" + "、".join(OT_ALLOWED) + " 之一，或留空（全部）"})
         limit = max(1, min(int(limit), 500))
         stage_expr = ("(SELECT json_extract(a.payload_json, '$.card.stage') FROM analyses a "
                       "WHERE a.item_id=n.item_id AND a.stage='deep' "
@@ -1278,12 +1283,16 @@ def create_app() -> FastAPI:
         vert_expr = ("(SELECT json_extract(a.payload_json, '$.card.anchor.vertical') "
                      "FROM analyses a WHERE a.item_id=n.item_id AND a.stage='deep' "
                      "ORDER BY a.id DESC LIMIT 1)")
+        type_expr = ("(SELECT json_extract(a.payload_json, '$.opportunity_type') "
+                     "FROM analyses a WHERE a.item_id=n.item_id AND a.stage='coarse' "
+                     "ORDER BY a.id DESC LIMIT 1)")
         conn = db.get_conn()
         try:
             sql = ("SELECT n.item_id, n.content, n.updated_at, i.title, i.url, "
                    "i.published_at, s.name AS source, "
                    "EXISTS(SELECT 1 FROM favorites f WHERE f.item_id=n.item_id) AS favorite, "
-                   f"{stage_expr} AS stage, {vert_expr} AS vertical "
+                   f"{stage_expr} AS stage, {vert_expr} AS vertical, "
+                   f"{type_expr} AS opportunity_type "
                    "FROM notes n JOIN items i ON i.id=n.item_id "
                    "LEFT JOIN sources s ON s.id=i.source_id ")
             conds, args = [], []
@@ -1296,6 +1305,9 @@ def create_app() -> FastAPI:
             if vertical:
                 conds.append("vertical = ?")
                 args.append(vertical)
+            if opportunity_type:
+                conds.append("opportunity_type = ?")
+                args.append(opportunity_type)
             if conds:
                 sql += "WHERE " + " AND ".join(conds) + " "
             sql += "ORDER BY n.updated_at DESC LIMIT ?"
@@ -1306,22 +1318,36 @@ def create_app() -> FastAPI:
             conn.close()
 
     @app.get("/api/favorites")
-    def list_favorites(limit: int = 100, q: str = ""):
-        """收藏列表（按收藏时间倒序）；q 按标题或该条目最新备注模糊匹配。
-        每条返回 note 字段（最新备注，无则 null）；一个收藏只出一行。"""
+    def list_favorites(limit: int = 100, q: str = "", opportunity_type: str = ""):
+        """收藏列表（按收藏时间倒序）；q 按标题或最新备注模糊匹配；
+        opportunity_type 按最新粗筛六类筛选。每条返回 note/opportunity_type。"""
+        from ..opportunity import ALLOWED as OT_ALLOWED
+        if opportunity_type and opportunity_type not in OT_ALLOWED:
+            return JSONResponse(status_code=400, content={
+                "error": "非法的机会类型：" + "、".join(OT_ALLOWED) + " 之一，或留空（全部）"})
         limit = max(1, min(int(limit), 500))
         note_expr = ("(SELECT n.content FROM notes n WHERE n.item_id=f.item_id "
                      "ORDER BY n.id DESC LIMIT 1)")
+        type_expr = ("(SELECT json_extract(a.payload_json, '$.opportunity_type') "
+                     "FROM analyses a WHERE a.item_id=f.item_id AND a.stage='coarse' "
+                     "ORDER BY a.id DESC LIMIT 1)")
         conn = db.get_conn()
         try:
             sql = ("SELECT f.item_id, f.created_at, i.title, i.url, i.published_at, "
-                   f"s.name AS source, {note_expr} AS note "
+                   f"s.name AS source, {note_expr} AS note, "
+                   f"{type_expr} AS opportunity_type "
                    "FROM favorites f JOIN items i ON i.id=f.item_id "
                    "LEFT JOIN sources s ON s.id=i.source_id ")
             args = []
+            conds = []
             if q:
-                sql += "WHERE (i.title LIKE ? OR " + note_expr + " LIKE ?) "
+                conds.append("(i.title LIKE ? OR " + note_expr + " LIKE ?)")
                 args += [f"%{q}%", f"%{q}%"]
+            if opportunity_type:
+                conds.append("opportunity_type = ?")
+                args.append(opportunity_type)
+            if conds:
+                sql += "WHERE " + " AND ".join(conds) + " "
             sql += "ORDER BY f.created_at DESC LIMIT ?"
             args.append(limit)
             rows = conn.execute(sql, args).fetchall()

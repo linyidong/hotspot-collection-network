@@ -46,28 +46,31 @@ def add_many(conn, batch_id: int, entries: list, cap: int = CAP) -> dict:
     return {"inserted": inserted, "evicted": evicted, "total": total}
 
 
-def list_items(limit: int = 50) -> dict:
-    """按 potential 降序返回候选池条目（含 items/sources 展示字段）与总数。"""
-    limit = max(1, min(int(limit), 200))
+def list_items(limit: int = 50, offset: int = 0, q: str = "") -> dict:
+    """按 potential 降序返回候选池条目（支持分页/标题/来源搜索）与匹配总数。"""
+    limit = max(1, min(int(limit), 100))
+    offset = max(0, int(offset))
+    q = (q or "").strip()
     conn = db.get_conn()
     try:
-        total = conn.execute("SELECT COUNT(*) c FROM candidate_pool").fetchone()["c"]
+        where, args = [], []
+        if q:
+            where.append("(i.title LIKE ? OR s.name LIKE ?)")
+            args.extend([f"%{q}%", f"%{q}%"])
+        wsql = (" WHERE " + " AND ".join(where)) if where else ""
+        total = conn.execute(
+            "SELECT COUNT(*) c FROM candidate_pool c JOIN items i ON i.id=c.item_id "
+            "LEFT JOIN sources s ON s.id=i.source_id" + wsql, args).fetchone()["c"]
         rows = conn.execute(
             "SELECT c.item_id, c.batch_id, c.potential, c.category, "
             "c.opportunity_type, c.created_at, i.title, i.url, i.published_at, "
-            "s.name AS source, "
-            "(SELECT payload_json FROM analyses a WHERE a.item_id=i.id "
-            " AND a.stage='coarse' ORDER BY a.id DESC LIMIT 1) AS coarse_json "
+            "s.name AS source "
             "FROM candidate_pool c JOIN items i ON i.id=c.item_id "
-            "LEFT JOIN sources s ON s.id=i.source_id "
-            "ORDER BY c.potential DESC, c.created_at DESC, c.item_id DESC LIMIT ?",
-            (limit,)).fetchall()
-        out = []
-        for r in rows:
-            d = dict(r)
-            d.pop("coarse_json", None)
-            out.append(d)
-        return {"items": out, "total": total, "cap": CAP}
+            "LEFT JOIN sources s ON s.id=i.source_id" + wsql +
+            " ORDER BY c.potential DESC, c.created_at DESC, c.item_id DESC "
+            "LIMIT ? OFFSET ?", args + [limit, offset]).fetchall()
+        return {"items": [dict(r) for r in rows], "total": total,
+                "cap": CAP, "limit": limit, "offset": offset, "q": q}
     finally:
         conn.close()
 

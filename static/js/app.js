@@ -633,21 +633,50 @@
       '<div class="poolmeta">' + meta + "</div></div>" +
       '<button data-promote="' + x.item_id + '">提级</button></div>';
   }
-  async function loadPool() {
+  var poolPage = 0, poolQ = "", poolSize = 20;
+  async function loadPool(page, q) {
+    if (typeof page === "number") poolPage = page;
+    if (typeof q === "string") poolQ = q;
+    var offset = poolPage * poolSize;
     modalShow("候选池");
     try {
-      var j = await api("/api/candidates?limit=50");
+      var url = "/api/candidates?limit=" + poolSize + "&offset=" + offset +
+        "&q=" + encodeURIComponent(poolQ);
+      var j = await api(url);
       var items = (j && j.items) || [];
-      $("mTitle").textContent = "候选池（" + (j.total || 0) + " / " + (j.cap || 200) + "）";
-      if (!items.length) {
-        $("mBody").innerHTML = '<div class="dim">候选池为空。每轮超出深加工限额的条目会自动入池；提级后移出。</div>';
-        return;
+      var total = (j && j.total) || 0;
+      var pages = Math.max(1, Math.ceil(total / poolSize));
+      if (offset >= total && total > 0 && poolPage > 0) {
+        return loadPool(poolPage - 1, poolQ);
       }
-      $("mBody").innerHTML = '<div class="g" style="margin-bottom:8px">超出深加工限额的粗筛合格条目；点「提级」立即消耗一次深加工费用。</div>' +
-        items.map(poolRow).join("");
-      Array.prototype.forEach.call($("mBody").querySelectorAll("button[data-promote]"), function (b) {
-        b.onclick = function () { promotePool(b.getAttribute("data-promote"), b); };
+      $("mTitle").textContent = "候选池（" + total + " / " + (j.cap || 200) + "）";
+      var bar = '<div class="poolbar">' +
+        '<input id="poolQ" type="search" placeholder="搜索标题 / 来源…" value="' +
+        esc(poolQ) + '"><button id="poolSearch">搜索</button>' +
+        '<span class="poolpg">第 ' + (poolPage + 1) + " / " + pages + " 页 · 共 " + total +
+        '</span><button id="poolPrev"' + (poolPage <= 0 ? " disabled" : "") +
+        '>上一页</button><button id="poolNext"' + (poolPage >= pages - 1 ? " disabled" : "") +
+        '>下一页</button></div>';
+      if (!items.length) {
+        $("mBody").innerHTML = bar + '<div class="dim">' +
+          (poolQ ? "没有匹配的候选条目。" : "候选池为空。每轮超出深加工限额的条目会自动入池；提级后移出。") +
+          "</div>";
+      } else {
+        $("mBody").innerHTML = bar +
+          '<div class="g" style="margin-bottom:8px">超出深加工限额的粗筛合格条目；点「提级」立即消耗一次深加工费用。</div>' +
+          items.map(poolRow).join("");
+        Array.prototype.forEach.call($("mBody").querySelectorAll("button[data-promote]"), function (b) {
+          b.onclick = function () { promotePool(b.getAttribute("data-promote"), b); };
+        });
+      }
+      var qi = $("poolQ");
+      var doSearch = function () { loadPool(0, qi.value.trim()); };
+      $("poolSearch").onclick = doSearch;
+      qi.addEventListener("keydown", function (ev) {
+        if (ev.key === "Enter") { ev.preventDefault(); doSearch(); }
       });
+      if (!$("poolPrev").disabled) $("poolPrev").onclick = function () { loadPool(poolPage - 1, poolQ); };
+      if (!$("poolNext").disabled) $("poolNext").onclick = function () { loadPool(poolPage + 1, poolQ); };
     } catch (e) {
       $("mBody").innerHTML = '<div class="dim">候选池读取失败：' + esc(e.message) + "</div>";
     }
@@ -663,7 +692,7 @@
       if (!j.ok && !j.status) {
         $("mBody").innerHTML = '<div class="dim">提级失败：' + esc(j.error || ("HTTP " + r.status)) +
           '</div><button class="nav" id="poolBack" style="margin-top:8px">返回候选池</button>';
-        var back = $("poolBack"); if (back) back.onclick = loadPool;
+        var back = $("poolBack"); if (back) back.onclick = function () { loadPool(poolPage, poolQ); };
         return;
       }
       $("mTitle").textContent = "深加工结果" + (j.status === "ok" ? "" : "（" + j.status + "）");
@@ -671,16 +700,16 @@
         : '<div class="dim">未生成线索卡：' + esc((j.reasons || []).join("；") || "模型按规则认输") + "</div>") +
         '<div class="g" style="margin-top:8px">本次花费 ¥' + Number(j.cost || 0).toFixed(4) + "</div>" +
         '<button class="nav" id="poolBack" style="margin-top:10px">返回候选池</button>';
-      var back2 = $("poolBack"); if (back2) back2.onclick = loadPool;
+      var back2 = $("poolBack"); if (back2) back2.onclick = function () { loadPool(poolPage, poolQ); };
       fetchAll();
     } catch (e) {
       $("mBody").innerHTML = '<div class="dim">提级失败：' + esc(e.message) +
         '</div><button class="nav" id="poolBack" style="margin-top:8px">返回候选池</button>';
-      var b2 = $("poolBack"); if (b2) b2.onclick = loadPool;
+      var b2 = $("poolBack"); if (b2) b2.onclick = function () { loadPool(poolPage, poolQ); };
     }
   }
   var poolBtn = $("btnPool");
-  if (poolBtn) poolBtn.onclick = loadPool;
+  if (poolBtn) poolBtn.onclick = function () { loadPool(0, ""); };
   function renderCard(c) {
     if (!c) return '<div class="dim">没有可展示的解析结果。</div>';
     var money = c.money_hypothesis || {}, na = c.next_action || {}, fe = c.feasibility || {};
