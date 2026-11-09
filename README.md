@@ -239,7 +239,8 @@ cp .env.example .env
 
 桌面已创建 **「采集-快捷启动」** 应用：
 
-- 双击后：服务已在运行 → 直接打开大屏；未运行 → 后台启动（screen 常驻）→ 等健康检查 → 打开大屏。
+- 双击后：服务已在运行 → 直接用 **Google Chrome** 打开大屏；未运行 → 后台启动（screen 常驻）→ 等健康检查 → 用 Google Chrome 打开大屏。
+- 优先使用 `/Volumes/Mac-1TB/Applications/Google Chrome.app`（真正安装的 Chrome），其次 `com.google.Chrome`，最后 Chrome for Testing；不会用系统默认浏览器。
 - 启动过程不弹终端；失败会弹中文提示，详细日志在 `data/logs/quickstart.log`。
 - 启动器内部调用项目根目录的 `启动.command`，项目路径变了需要重建快捷方式。
 
