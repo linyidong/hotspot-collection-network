@@ -256,6 +256,24 @@ cp .env.example .env
 - 平台榜单（Amazon）由本机 Chrome 抓取，仍不吃单源设置
 - **代理凭据不会明文显示**：API/设置页只显示 `scheme://***:***@host:port`，留空保存会保留原代理
 
+## 搜索 API（深挖，F-005）
+
+详情页的「深挖（联网检索）」需要 Tavily Key：
+
+```bash
+# 编辑项目根目录 .env（不要提交）
+SEARCH_PROVIDER=tavily
+SEARCH_API_KEY=tvly-...
+# 可选；留空会复用 PROXY_DEFAULT_URL 或源表里的代理
+SEARCH_PROXY_URL=
+```
+
+- Key 只写 `.env`，接口/页面/日志只显示「已配置/未配置」，不返回 Key。
+- 未配置 Key 时深挖按钮禁用，采集/加工不受影响。
+- 搜索请求默认复用 Google 源的 SOCKS5 代理（DB 里的 proxy_url），不需要重复填；
+  如需独立代理再设 `SEARCH_PROXY_URL`。
+- 改完 `.env` 需要重启服务（`停止.command` → `启动.command`）才生效。
+
 ## 五、如何改提示词
 
 - 粗筛：`prompts/coarse.md`；深加工：`prompts/deep.md`
