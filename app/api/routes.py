@@ -13,6 +13,7 @@ from fastapi import Body, FastAPI
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from .. import candidates as candidates_mod
 from .. import db
 from .. import search as search_mod
 from ..bridge import bridge
@@ -23,7 +24,7 @@ from ..sources.registry import SOURCES, get_spec
 _START = time.time()
 
 TABLES = ("sources", "batches", "items", "analyses", "notes",
-          "favorites", "llm_calls", "config")
+          "favorites", "llm_calls", "config", "heartbeats", "candidate_pool")
 
 PROXY_MODES = ("direct", "proxy")
 SOCKS5_SOURCE_IDS = ("gnews-kuajing", "gnews-xuanpin", "gnews-guanshui",
@@ -50,7 +51,8 @@ def _mask_proxy_url(url) -> str | None:
 
 
 def _adjust_batch_stats(conn, batch_id, old_status, new_status,
-                        cost_delta, old_reasons, new_reasons) -> bool:
+                        cost_delta, old_reasons, new_reasons,
+                        skipped_delta=0, candidates_delta=0, pool_delta=0) -> bool:
     """按一次深加工重跑调整 batches.stats_json（T8：重加工后批次账必须同步）。
     输入：批次 id、旧/新 deep 状态（ok/rejected/failed/None=从未深加工）、
     本次新调用成本 cost_delta、旧/新拒绝原因。
@@ -92,6 +94,18 @@ def _adjust_batch_stats(conn, batch_id, old_status, new_status,
     cur_cost = stats.get("cost")
     cur_cost = float(cur_cost) if isinstance(cur_cost, (int, float)) else 0.0
     stats["cost"] = round(cur_cost + float(cost_delta or 0.0), 6)
+    if skipped_delta:
+        cur = stats.get("deep_skipped")
+        cur = int(cur) if isinstance(cur, (int, float)) else 0
+        stats["deep_skipped"] = max(0, cur + int(skipped_delta))
+    if candidates_delta:
+        cur = stats.get("deep_candidates")
+        cur = int(cur) if isinstance(cur, (int, float)) else 0
+        stats["deep_candidates"] = max(0, cur + int(candidates_delta))
+    if pool_delta:
+        cur = stats.get("candidate_pool_total")
+        cur = int(cur) if isinstance(cur, (int, float)) else 0
+        stats["candidate_pool_total"] = max(0, cur + int(pool_delta))
 
     conn.execute("UPDATE batches SET stats_json=? WHERE id=?",
                  (json.dumps(stats, ensure_ascii=False), batch_id))
@@ -302,6 +316,7 @@ def create_app() -> FastAPI:
                     "duplicate_of": r["duplicate_of"], "coarse_status": r["coarse_status"],
                     "potential": payload.get("potential"),
                     "is_economic": payload.get("is_economic"),
+                    "opportunity_type": payload.get("opportunity_type"),
                     "anchors": payload.get("anchors"),
                 })
             return {"items": out, "batch_id": batch_id}
@@ -414,6 +429,7 @@ def create_app() -> FastAPI:
                     "category": anchor.get("category"),
                     "confidence": card.get("confidence"),
                     "potential": coarse.get("potential"),
+                    "opportunity_type": coarse.get("opportunity_type"),
                     "next_action": na,
                     "money_form": mh.get("form"),
                     "feasibility": card.get("feasibility"),
@@ -421,6 +437,78 @@ def create_app() -> FastAPI:
             return {"batch_id": batch_id, "leads": out, "count": len(out)}
         finally:
             conn.close()
+
+    @app.get("/api/candidates")
+    def candidate_list(limit: int = 50):
+        """候选池：超出深加工限额的粗筛合格条目（最多 200）。"""
+        return candidates_mod.list_items(limit)
+
+    @app.post("/api/candidates/{item_id}/promote")
+    def promote_candidate(item_id: int):
+        """手动提级：对候选池条目跑一次深加工；成功/拒绝/失败都移出池并同步批次账。"""
+        from .. import scheduler as sched
+        from .. import budget
+        from ..pipeline import deep_one
+        from .. import settings_store
+
+        conn = db.get_conn()
+        try:
+            c = candidates_mod.get(conn, item_id)
+            if c is None:
+                return JSONResponse(status_code=404, content={
+                    "ok": False, "error": "该条不在候选池（可能已被提级或淘汰）"})
+            item = conn.execute(
+                "SELECT i.id, i.title, i.summary, i.published_at, i.url, "
+                "s.name AS source_name FROM items i LEFT JOIN sources s "
+                "ON s.id=i.source_id WHERE i.id=?", (item_id,)).fetchone()
+            coarse_row = conn.execute(
+                "SELECT payload_json FROM analyses WHERE item_id=? AND stage='coarse' "
+                "ORDER BY id DESC LIMIT 1", (item_id,)).fetchone()
+        finally:
+            conn.close()
+        if item is None:
+            return JSONResponse(status_code=404, content={
+                "ok": False, "error": "条目不存在"})
+        if sched.STATE.get("running"):
+            return JSONResponse(status_code=409, content={
+                "ok": False, "error": "本轮采集中，请稍后再提级"})
+        bs = budget.status()
+        if bs["mode"] != "ok":
+            mode_cn = {"hard": "硬停", "soft": "软停"}.get(bs["mode"], bs["mode"])
+            return JSONResponse(status_code=400, content={
+                "ok": False, "error": f"预算{mode_cn}，暂不能提级；请调整预算后再试"})
+        try:
+            coarse = json.loads(coarse_row["payload_json"] or "{}") if coarse_row else {}
+        except (ValueError, TypeError):
+            coarse = {}
+        if not isinstance(coarse, dict) or not coarse:
+            return JSONResponse(status_code=400, content={
+                "ok": False, "error": "该条缺少粗筛结果，无法提级"})
+        cfg = settings_store.load()
+        try:
+            res = deep_one(item, coarse, c["batch_id"], cfg["deep_model"])
+        except Exception as exc:
+            return JSONResponse(status_code=500, content={
+                "ok": False, "error": f"提级失败：{type(exc).__name__}: {str(exc)[:160]}"})
+        conn = db.get_conn()
+        try:
+            payload = {"card": res["card"], "reasons": res["reasons"]}
+            conn.execute(
+                "INSERT INTO analyses(item_id, stage, model, payload_json, status, cost, created_at) "
+                "VALUES(?,?,?,?,?,?,?)",
+                (item_id, "deep", cfg["deep_model"],
+                 json.dumps(payload, ensure_ascii=False), res["status"],
+                 res["cost"], datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+            candidates_mod.remove(conn, item_id)
+            _adjust_batch_stats(conn, c["batch_id"], None, res["status"],
+                                res["cost"], [], res["reasons"],
+                                skipped_delta=-1, candidates_delta=1, pool_delta=-1)
+            conn.commit()
+        finally:
+            conn.close()
+        return {"ok": res["status"] == "ok", "status": res["status"],
+                "card": res["card"], "reasons": res["reasons"],
+                "cost": res["cost"], "model": cfg["deep_model"]}
 
     @app.get("/api/sources/socks5")
     def get_socks5_preset():
@@ -909,6 +997,15 @@ def create_app() -> FastAPI:
                 return JSONResponse(status_code=404,
                                     content={"error": "条目不存在"})
             deep = _deep_of(conn, item_id)
+            coarse_row = conn.execute(
+                "SELECT payload_json FROM analyses WHERE item_id=? AND stage='coarse' "
+                "ORDER BY id DESC LIMIT 1", (item_id,)).fetchone()
+            coarse = {}
+            if coarse_row is not None and coarse_row["payload_json"]:
+                try:
+                    coarse = json.loads(coarse_row["payload_json"]) or {}
+                except (ValueError, TypeError):
+                    coarse = {}
             note = conn.execute(
                 "SELECT content, updated_at FROM notes WHERE item_id=? "
                 "ORDER BY id DESC LIMIT 1", (item_id,)).fetchone()
@@ -925,6 +1022,7 @@ def create_app() -> FastAPI:
                 "cost": deep["cost"],
                 "analyzed_at": deep["analyzed_at"],
                 "can_reanalyze": deep["status"] != "ok",
+                "opportunity_type": coarse.get("opportunity_type"),
                 "note": note["content"] if note else None,
                 "note_updated_at": note["updated_at"] if note else None,
                 "favorite": bool(fav),

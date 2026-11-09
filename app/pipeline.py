@@ -16,7 +16,7 @@ from datetime import datetime
 from difflib import SequenceMatcher
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-from . import budget, db, dedup_topic, settings_store
+from . import budget, candidates, db, dedup_topic, opportunity, settings_store
 from .config import ROOT, settings
 from .llm import chat
 from .sources.collect import collect_once
@@ -173,6 +173,12 @@ def _parse_coarse_output(text: str) -> dict:
     if not isinstance(data.get("potential"), int) and \
             not (isinstance(data.get("potential"), float)):
         raise ValueError("potential 不是数字")
+    # F-004：经济条目必须给固定 6 类之一；非经济条目统一规范为 none
+    if not data["is_economic"]:
+        data["opportunity_type"] = opportunity.NONE
+    else:
+        data["opportunity_type"] = opportunity.normalize(
+            data.get("opportunity_type"))
     return data
 
 
@@ -339,7 +345,9 @@ def run_once(deep_limit: int = None, trigger: str = "手动") -> dict:
              "deep_failed": 0, "deep_skipped": 0, "deep_candidates": 0,
              "deep_r11": 0, "cost": 0.0, "duration_s": 0.0,
              "sources_ok": 0, "sources_failed": 0,
-             "failed_sources": [], "budget_stop": "ok", "deep_skipped_budget": 0}
+             "failed_sources": [], "budget_stop": "ok", "deep_skipped_budget": 0,
+             "candidate_pool_added": 0, "candidate_pool_evicted": 0,
+             "candidate_pool_total": 0}
     try:
         # 0) 轮首预算熔断检查（hard → 整轮不调用任何模型；soft → 只跑粗筛）
         budget_mode = budget.status(conn=conn)["mode"]
@@ -446,68 +454,91 @@ def run_once(deep_limit: int = None, trigger: str = "手动") -> dict:
                 stats["topic_merged_error"] = f"{type(exc).__name__}: {exc}"
 
         limit = cfg["deep_limit"] if deep_limit is None else max(0, int(deep_limit))
-        if limit > 0 and budget_mode != "hard":
+
+        # 先一次性取出本轮所有粗筛合格条目；不论是否深加工，都要落候选池。
+        econ = []
+        if stats["coarse_ok"] > 0:
+            rows = conn.execute(
+                "SELECT i.id, i.title, i.summary, i.published_at, i.url, "
+                "s.name AS source_name, a.payload_json "
+                "FROM items i JOIN sources s ON s.id=i.source_id "
+                "JOIN analyses a ON a.item_id=i.id AND a.stage='coarse' "
+                "WHERE i.batch_id=? AND i.is_duplicate=0 AND a.status='ok'",
+                (batch_id,)).fetchall()
+            for r in rows:
+                try:
+                    cp = json.loads(r["payload_json"] or "{}")
+                except (ValueError, TypeError):
+                    cp = {}
+                if cp.get("is_economic") is False:
+                    continue
+                cat = ((cp.get("anchors") or {}).get("category") or "其他").strip() or "其他"
+                econ.append({
+                    "row": r, "coarse": cp,
+                    "potential": int(cp.get("potential") or 0),
+                    "category": cat,
+                    "opportunity_type": cp.get("opportunity_type") or "",
+                })
+
+        def _persist_pool(entries):
+            if not entries:
+                return
+            res = candidates.add_many(conn, batch_id, [
+                {"item_id": e["row"]["id"], "potential": e["potential"],
+                 "category": e["category"],
+                 "opportunity_type": e["opportunity_type"]}
+                for e in entries])
+            stats["candidate_pool_added"] += res["inserted"]
+            stats["candidate_pool_evicted"] += res["evicted"]
+            stats["candidate_pool_total"] = res["total"]
+            conn.commit()
+
+        if limit <= 0 or budget_mode in ("soft", "hard"):
+            # 没有深加工名额/预算熔断：全部进候选池，不丢条目
+            _persist_pool(econ)
+            stats["deep_skipped"] = len(econ)
             if budget_mode == "soft":
-                # 预算软停：粗筛已跑完，本应深加工的候选全部跳过
-                stats["deep_skipped_budget"] = stats["coarse_ok"]
-            else:
-                rows = conn.execute(
-                    "SELECT i.id, i.title, i.summary, i.published_at, i.url, "
-                    "s.name AS source_name, a.payload_json "
-                    "FROM items i JOIN sources s ON s.id=i.source_id "
-                    "JOIN analyses a ON a.item_id=i.id AND a.stage='coarse' "
-                    "WHERE i.batch_id=? AND i.is_duplicate=0 AND a.status='ok'",
-                    (batch_id,)).fetchall()
-                # 按潜力分降序 + 品类配额（借鉴 Horizon 的 balanced digest，避免一个品类刷屏）
-                pool = []
-                for r in rows:
-                    try:
-                        cp = json.loads(r["payload_json"] or "{}")
-                    except (ValueError, TypeError):
-                        cp = {}
-                    if cp.get("is_economic") is False:
-                        continue
-                    cat = ((cp.get("anchors") or {}).get("category") or "其他").strip() or "其他"
-                    pool.append((int(cp.get("potential") or 0), cat, r))
-                pool.sort(key=lambda x: -x[0])
-                per_cat = int(cfg.get("deep_per_category") or 0)
-                picked, used = [], {}
-                for _pot, cat, r in pool:
-                    if per_cat and used.get(cat, 0) >= per_cat:
-                        continue
-                    used[cat] = used.get(cat, 0) + 1
-                    picked.append(r)
-                    if len(picked) >= limit:
-                        break
-                candidates = picked
-                total_ok = len(pool)
-                stats["deep_candidates"] = len(candidates)
-                stats["deep_skipped"] = max(0, total_ok - len(candidates))
-                for idx, it in enumerate(candidates):
-                    bs = budget.status(conn=conn)
-                    if bs["mode"] != "ok":
-                        stats["budget_stop"] = bs["mode"]
-                        stats["deep_skipped_budget"] = len(candidates) - idx
-                        break
-                    try:
-                        coarse_res = json.loads(it["payload_json"]) if it["payload_json"] else {}
-                    except Exception:
-                        coarse_res = {}
-                    res = deep_one(it, coarse_res, batch_id, cfg["deep_model"])
-                    payload = {"card": res["card"], "reasons": res["reasons"]}
-                    conn.execute(
-                        "INSERT INTO analyses(item_id, stage, model, payload_json, "
-                        "status, cost, created_at) VALUES(?,?,?,?,?,?,?)",
-                        (it["id"], "deep", cfg["deep_model"],
-                         json.dumps(payload, ensure_ascii=False), res["status"],
-                         res["cost"], _now()))
-                    conn.commit()
-                    key = {"ok": "deep_ok", "rejected": "deep_rejected"}.get(
-                        res["status"], "deep_failed")
-                    stats[key] += 1
-                    if res["status"] == "rejected" and any(
-                            str(x).startswith("r11") for x in res["reasons"]):
-                        stats["deep_r11"] += 1
+                stats["deep_skipped_budget"] = len(econ)
+        else:
+            # 按潜力分降序 + 品类配额（借鉴 Horizon 的 balanced digest，避免一个品类刷屏）
+            pool = sorted(econ, key=lambda e: -e["potential"])
+            per_cat = int(cfg.get("deep_per_category") or 0)
+            picked, used = [], {}
+            for e in pool:
+                cat = e["category"]
+                if per_cat and used.get(cat, 0) >= per_cat:
+                    continue
+                used[cat] = used.get(cat, 0) + 1
+                picked.append(e)
+                if len(picked) >= limit:
+                    break
+            picked_ids = {e["row"]["id"] for e in picked}
+            _persist_pool([e for e in econ if e["row"]["id"] not in picked_ids])
+            stats["deep_candidates"] = len(picked)
+            stats["deep_skipped"] = max(0, len(econ) - len(picked))
+            for idx, e in enumerate(picked):
+                bs = budget.status(conn=conn)
+                if bs["mode"] != "ok":
+                    stats["budget_stop"] = bs["mode"]
+                    stats["deep_skipped_budget"] = len(picked) - idx
+                    # 预算中途熔断：剩余候选也进池，避免丢失
+                    _persist_pool(picked[idx:])
+                    break
+                res = deep_one(e["row"], e["coarse"], batch_id, cfg["deep_model"])
+                payload = {"card": res["card"], "reasons": res["reasons"]}
+                conn.execute(
+                    "INSERT INTO analyses(item_id, stage, model, payload_json, "
+                    "status, cost, created_at) VALUES(?,?,?,?,?,?,?)",
+                    (e["row"]["id"], "deep", cfg["deep_model"],
+                     json.dumps(payload, ensure_ascii=False), res["status"],
+                     res["cost"], _now()))
+                conn.commit()
+                key = {"ok": "deep_ok", "rejected": "deep_rejected"}.get(
+                    res["status"], "deep_failed")
+                stats[key] += 1
+                if res["status"] == "rejected" and any(
+                        str(x).startswith("r11") for x in res["reasons"]):
+                    stats["deep_r11"] += 1
 
         # 6) 收尾：花费（本批 llm_calls 求和，与摘要完全一致）+ 批次状态
         cost_row = conn.execute(

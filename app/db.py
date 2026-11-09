@@ -1,13 +1,13 @@
 # -*- coding: utf-8 -*-
-"""模块：SQLite 数据库层。职责：连接 data/app.db、开 WAL、幂等建 8 张表
-    （sources/batches/items/analyses/notes/favorites/llm_calls/config），字段按 PRD §8；
+"""模块：SQLite 数据库层。职责：连接 data/app.db、开 WAL、幂等建 10 张表
+    （sources/batches/items/analyses/notes/favorites/llm_calls/heartbeats/config/candidate_pool），字段按 PRD §8；
     提供 get_conn / init_db / table_names / db_ok。关键依赖：stdlib sqlite3、app.config。"""
 import sqlite3
 from pathlib import Path
 
 from .config import settings
 
-# 8 张表的建表语句（IF NOT EXISTS，可重复执行；字段按 PRD §8 数据表）
+# 10 张表的建表语句（IF NOT EXISTS，可重复执行；字段按 PRD §8 数据表）
 SCHEMA = [
     """CREATE TABLE IF NOT EXISTS sources(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -72,6 +72,13 @@ SCHEMA = [
     """CREATE TABLE IF NOT EXISTS config(
         key TEXT PRIMARY KEY,
         value TEXT)""",
+    """CREATE TABLE IF NOT EXISTS candidate_pool(
+        item_id INTEGER PRIMARY KEY,
+        batch_id INTEGER NOT NULL,
+        potential INTEGER NOT NULL DEFAULT 0,
+        category TEXT,
+        opportunity_type TEXT,
+        created_at TEXT NOT NULL)""",
 ]
 
 

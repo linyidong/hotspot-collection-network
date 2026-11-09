@@ -43,6 +43,15 @@ header h1{font-size:16px;color:#eaf2ff;letter-spacing:1px;white-space:nowrap}
 .cstage span{display:block;margin:2px 0;white-space:nowrap}
 .cerr{color:#ff8080;line-height:1.7}
 .cerr button{margin-top:4px}
+.poolrow{display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-bottom:1px solid rgba(120,180,255,.1)}
+.poolrow .pt{min-width:0;flex:1}
+.poolrow .pt a{color:#e6efff;text-decoration:none;font-size:13px}
+.poolrow .pt a:hover{color:#7fd4ff;text-decoration:underline}
+.poolmeta{font-size:10px;color:#8fa3c4;margin-top:3px;line-height:1.6}
+.poolrow button{flex:none;font-size:11px;padding:3px 9px;border-radius:3px;border:1px solid rgba(53,208,232,.5);
+  background:rgba(53,208,232,.12);color:#7fe6f5;cursor:pointer}
+.poolrow button:hover{background:rgba(53,208,232,.25)}
+.poolrow button:disabled{opacity:.5;cursor:default}
 .card .ai{font-size:10px;padding:0 6px;border-radius:3px;border:1px solid rgba(53,208,232,.5);
   background:rgba(53,208,232,.12);color:#7fe6f5;cursor:pointer;flex:none;line-height:15px}
 .card .ai:hover{background:rgba(53,208,232,.28)}
@@ -325,6 +334,7 @@ footer b{color:#9fb4d8}
           <div id="costBody"><div class="crow">加载中…</div></div>
         </div>
       </div>
+      <button class="nav" id="btnPool" title="候选池：超出深加工限额的粗筛合格条目">候选池</button>
     </div>
     <div id="g3d">
       <div id="mkt" title="行情来自公开接口，60 秒缓存">

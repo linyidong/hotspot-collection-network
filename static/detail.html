@@ -124,6 +124,7 @@ button[disabled]{opacity:.55;cursor:default}
       html += '<div class="row" style="margin-top:10px">';
       html += '<span class="chip ' + (stage || "").toLowerCase() + '">' +
               esc(STAGE_NAME[stage] || stage || "未分类") + "</span>";
+      if (d.opportunity_type) html += '<span class="chip" title="粗筛机会类型">' + esc(d.opportunity_type) + "</span>";
       if (card.anchor && card.anchor.vertical) html += '<span class="chip">' + esc(card.anchor.vertical) + "</span>";
       html += '<span class="chip">等级 ' + grade + "</span>";
       if (card.anchor) html += '<span class="chip">' + esc(card.anchor.country || "—") + " / " +

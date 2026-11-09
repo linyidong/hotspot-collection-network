@@ -26,7 +26,7 @@ def run(conn=None) -> dict:
             "WHERE COALESCE(i.published_at, b.started_at) < ?", (cutoff_items,)).fetchall()]
 
         n = {"items": 0, "analyses": 0, "notes": 0, "favorites": 0,
-             "llm_calls": 0, "settings_log": 0}
+             "llm_calls": 0, "settings_log": 0, "candidate_pool": 0}
         if old:
             marks = ",".join("?" * len(old))
             n["favorites"] = conn.execute(
@@ -40,6 +40,12 @@ def run(conn=None) -> dict:
         # 孤立解析记录（条目已不在但 analyses 残留）一并清掉
         n["analyses"] += conn.execute(
             "DELETE FROM analyses WHERE item_id NOT IN (SELECT id FROM items)").rowcount
+        # 候选池里的条目若已被保留期清理，也一并清掉（只删池记录）
+        try:
+            n["candidate_pool"] = conn.execute(
+                "DELETE FROM candidate_pool WHERE item_id NOT IN (SELECT id FROM items)").rowcount
+        except Exception:
+            n["candidate_pool"] = 0
         n["llm_calls"] = conn.execute(
             "DELETE FROM llm_calls WHERE created_at < ?", (cutoff_calls,)).rowcount
         # 心跳记录只留 30 天（用于调度审计）
