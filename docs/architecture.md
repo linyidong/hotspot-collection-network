@@ -175,7 +175,7 @@ next_action 不得只查资料/只关注、fact 禁传闻词、S3 数值门槛�
 3. 抓到的条目先落 `items`（batch_id 标记）
 4. `dedup` 与库内历史比对 → 重复的标 `duplicate` 不参与后续
 5. `coarse` 分批调用 flash → 写 `analyses(stage=coarse)`
-6. 按 potential 排序取前 N → `deep` 调用 pro → 写 `analyses(stage=deep)`
+6. 按 potential 排序取前 N → `deep` 调用 pro → 写 `analyses(stage=deep)`；超出的粗筛合格条目进 `candidate_pool`（上限 200，按 potential 淘汰最低），大屏可手动提级
 7. `validate` 校验 → `status=ok/rejected`
 8. `cost` 累计本轮花费；触达阈值则熔断
 9. 更新 `batches`（status=done/degraded/failed、stats_json）

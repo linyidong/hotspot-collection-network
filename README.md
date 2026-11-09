@@ -22,7 +22,7 @@ pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
 ```
 
 > 已在干净目录 + 全新 venv 环境实测：装完依赖后 `python run.py` 可直接启动，
-> 自动建 8 张表、拉起 RSS 桥、无 API Key 时页面提示申请而不报错（2026-10-21）。
+> 自动建 10 张表、拉起 RSS 桥、无 API Key 时页面提示申请而不报错（2026-10-21）。
 
 ## 二、启动
 
@@ -68,7 +68,7 @@ run.py                  # 唯一入口：检查 → 建库 → 起桥/调度/服
 app/
   api/routes.py         # 全部 /api 路由
   config.py             # .env + data/config.json + 默认值
-  db.py                 # SQLite：WAL + 幂等建 9 张表
+  db.py                 # SQLite：WAL + 幂等建 10 张表
   pipeline.py           # 采集→去重→粗筛→深加工→校验 单轮编排
   validate.py           # 12 条反废话校验（r1–r12）
   market.py             # 行情指标（金价/油价/汇率，F-015）
@@ -264,6 +264,12 @@ cp .env.example .env
 - 桥接型源（财联社/东财/同花顺/金十/见闻RSS）由 8053 桥进程抓取，**现已支持 http/https/socks5 代理**（socks5 需 socksio，已写入 requirements）
 - 平台榜单（Amazon）由本机 Chrome 抓取，仍不吃单源设置
 - **代理凭据不会明文显示**：API/设置页只显示 `scheme://***:***@host:port`，留空保存会保留原代理
+
+## 六类机会类型与候选池
+
+- 粗筛每条输出固定 6 类机会类型之一（跨境贸易差价 / 政策补贴红利 / 平台规则变化带来的套利 / 新技术落地早期 / 消费趋势 / 供应链缺货）或 `none`；自创类型会被拒绝。
+- 超出每轮深加工上限的合格条目自动进入**候选池**（上限 200，按 potential 淘汰最低）；大屏「候选池」按钮可查看并手动提级。
+- 提级会立即消耗一次深加工费用，并同步批次账。
 
 ## 设置页：境外 SOCKS5
 
