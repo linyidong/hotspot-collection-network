@@ -91,11 +91,21 @@ if [ ! -f .venv/.deps_ok ] || ! python -c 'import fastapi, uvicorn, httpx, feedp
   touch .venv/.deps_ok
 fi
 
-# ---------- 5. 后台启动（关掉终端也不影响） ----------
+# ---------- 5. 后台启动（screen 常驻；关掉终端也不影响） ----------
 mkdir -p data/logs
-echo "启动服务（后台运行，日志：data/logs/app.log）…"
-nohup python run.py >> data/logs/app.log 2>&1 &
-echo $! > data/logs/app.pid
+if command -v screen >/dev/null 2>&1; then
+  if screen -ls 2>/dev/null | grep -q "[.]hcn[[:space:]]"; then
+    echo "screen 常驻会话已存在（hcn），跳过重复启动。"
+  else
+    echo "启动服务（screen 常驻，日志：data/logs/app.log）…"
+    # screen 会话脱离当前终端；exec 让 python 成为会话首进程，停止脚本才能真正结束它
+    screen -dmS hcn bash -lc "cd '$PWD'; exec .venv/bin/python run.py >> data/logs/app.log 2>&1"
+  fi
+else
+  echo "启动服务（nohup 后台，日志：data/logs/app.log）…"
+  nohup python run.py >> data/logs/app.log 2>&1 &
+  echo $! > data/logs/app.pid
+fi
 
 # ---------- 6. 等健康检查通过 ----------
 READY=0

@@ -13,6 +13,13 @@ fi
 PORT="${PORT:-9000}"
 BRIDGE_PORT="${RSS_BRIDGE_PORT:-8053}"
 
+# 0) screen 常驻会话（否则杀掉进程后会被 screen 循环自动拉起）
+if command -v screen >/dev/null 2>&1 && screen -ls 2>/dev/null | grep -q "[.]hcn[[:space:]]"; then
+  echo "关闭 screen 常驻会话 hcn"
+  screen -S hcn -X quit 2>/dev/null || true
+  sleep 1
+fi
+
 # 1) pid 文件
 if [ -f data/logs/app.pid ]; then
   PID=$(cat data/logs/app.pid 2>/dev/null || true)
