@@ -27,6 +27,10 @@ DEFAULTS = {
     "PORT": "9000",
     "RSS_BRIDGE_PORT": "8053",
     "PROXY_DEFAULT_URL": "",
+    # F-005 深挖搜索（Tavily）。Key 只写 .env，不进仓库、不进日志
+    "SEARCH_PROVIDER": "tavily",
+    "SEARCH_API_KEY": "",
+    "SEARCH_PROXY_URL": "",
     "MONTHLY_BUDGET_CNY": "200",
     "DEEP_LIMIT_PER_RUN": "10",
     "RUN_INTERVAL_HOURS": "3",
@@ -35,7 +39,8 @@ DEFAULTS = {
 
 # 需要从 .env 读取的键（其余业务键来自 data/config.json）
 ENV_KEYS = ("DEEPSEEK_API_KEY", "DEEPSEEK_BASE_URL", "COARSE_MODEL",
-            "DEEP_MODEL", "PORT", "RSS_BRIDGE_PORT", "PROXY_DEFAULT_URL")
+            "DEEP_MODEL", "PORT", "RSS_BRIDGE_PORT", "PROXY_DEFAULT_URL",
+            "SEARCH_PROVIDER", "SEARCH_API_KEY", "SEARCH_PROXY_URL")
 
 
 def mask_key(key: str) -> str:
@@ -110,7 +115,8 @@ class Settings:
 
     def as_dict(self) -> dict:
         """业务参数全量（供 /api/settings 等后续使用），不含密钥。"""
-        return {k: v for k, v in self._m.items() if k != "DEEPSEEK_API_KEY"}
+        return {k: v for k, v in self._m.items()
+                if k not in ("DEEPSEEK_API_KEY", "SEARCH_API_KEY")}
 
 
 settings = get_settings()

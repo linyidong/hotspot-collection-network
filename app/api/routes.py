@@ -14,6 +14,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from .. import db
+from .. import search as search_mod
 from ..bridge import bridge
 from ..config import settings
 from ..sources.registry import SOURCES, get_spec
@@ -241,6 +242,7 @@ def create_app() -> FastAPI:
             "db_ok": ok,
             "db_tables": len(names),
             "key_configured": settings.key_configured,
+            "search_configured": search_mod.configured(),
             "uptime_seconds": uptime,
             "bridge": {
                 "ok": bridge.is_alive(),
@@ -927,6 +929,90 @@ def create_app() -> FastAPI:
         if warning:
             result["warning"] = warning
         return result
+
+    @app.get("/api/search/status")
+    def search_status():
+        """F-005 深挖搜索配置状态。只回布尔与供应商名，不回 Key/代理地址。"""
+        return {"configured": search_mod.configured(),
+                "provider": (settings.SEARCH_PROVIDER or "tavily"),
+                "proxy_set": bool(search_mod._proxy_url())}
+
+    @app.post("/api/item/{item_id}/deepdive")
+    def deepdive_item(item_id: int):
+        """F-005 深挖：手工触发二轮检索 + 模型加工。
+        拒绝路径：条目不存在→404；调度闸/本轮采集中→409；预算熔断→400；
+        未配置搜索 Key→400；无线索卡等加工前置不满足→400；均为中文。"""
+        from .. import deepdive
+        from .. import scheduler as sched
+        from .. import budget
+
+        conn = db.get_conn()
+        try:
+            row = conn.execute("SELECT 1 FROM items WHERE id=?",
+                               (item_id,)).fetchone()
+        finally:
+            conn.close()
+        if row is None:
+            return JSONResponse(status_code=404, content={
+                "ok": False, "error": "条目不存在，请返回大屏确认条目 ID"})
+
+        if not search_mod.configured():
+            return JSONResponse(status_code=400, content={
+                "ok": False,
+                "error": "未配置搜索 API Key（SEARCH_API_KEY）。"
+                         "请把 Tavily Key 写入项目根目录 .env，并重启服务后再深挖"})
+
+        if sched.STATE.get("running"):
+            return JSONResponse(status_code=409, content={
+                "ok": False, "error": "本轮采集中，请稍后再试"})
+
+        bs = budget.status()
+        if bs["mode"] != "ok":
+            mode_cn = {"hard": "硬停", "soft": "软停"}.get(bs["mode"], bs["mode"])
+            return JSONResponse(status_code=400, content={
+                "ok": False,
+                "error": f"预算{mode_cn}（本月剩余 ¥{bs['remaining']:.2f} / "
+                         f"预算 ¥{bs['budget']:.2f}），已暂停深挖；"
+                         f"请在大屏设置里提高月预算，或等待下月预算重置后再试"})
+
+        try:
+            return deepdive.run(item_id)
+        except ValueError as exc:
+            # 无卡 / 检索无结果 / 预算复检等中文原因
+            return JSONResponse(status_code=400, content={
+                "ok": False, "error": f"无法深挖：{exc}"})
+        except Exception as exc:
+            return JSONResponse(status_code=500, content={
+                "ok": False,
+                "error": f"深挖失败：{type(exc).__name__}: {str(exc)[:200]}；"
+                         f"请检查搜索 API/网络后重试，持续失败请查看 data/logs/app.log"})
+
+    @app.get("/api/item/{item_id}/deepdive")
+    def deepdive_get(item_id: int):
+        """最新一条深挖记录（payload + model/cost/analyzed_at/status）。
+        没有记录返回 {data: null}。"""
+        conn = db.get_conn()
+        try:
+            row = conn.execute(
+                "SELECT payload_json, status, model, cost, created_at FROM analyses "
+                "WHERE item_id=? AND stage='deepdive' ORDER BY id DESC LIMIT 1",
+                (item_id,)).fetchone()
+        finally:
+            conn.close()
+        if row is None:
+            return {"data": None}
+        try:
+            payload = json.loads(row["payload_json"] or "{}")
+        except (ValueError, TypeError):
+            payload = {}
+        return {"data": payload.get("data"),
+                "reasons": payload.get("reasons") or [],
+                "search_queries": payload.get("search_queries") or [],
+                "search_count": payload.get("search_count") or 0,
+                "sources": payload.get("sources") or [],
+                "status": row["status"], "model": row["model"],
+                "cost": float(row["cost"] or 0.0),
+                "analyzed_at": row["created_at"]}
 
     @app.post("/api/item/{item_id}/note")
     def save_note(item_id: int, content: str = Body(default="", embed=True)):

@@ -1,6 +1,7 @@
 <!DOCTYPE html>
-<!-- 模块：条目详情页。职责：展示一条热点原文 + 深加工线索卡 + 备注 + 收藏。
-     数据来源：GET /api/item/{id}；备注失焦自动保存；零外部依赖。 -->
+<!-- 模块：条目详情页。职责：展示一条热点原文 + 深加工线索卡 + 深挖（联网检索）
+     + 备注 + 收藏。数据来源：GET /api/item/{id}、/api/search/status、
+     /api/item/{id}/deepdive；备注失焦自动保存；零外部依赖。 -->
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
@@ -53,6 +54,8 @@ button[disabled]{opacity:.55;cursor:default}
   var GRADE = {high: "A", medium: "B", low: "C"};
   var saved = null, timer = null;
   var banner = null;  // 重新加工后批次统计未更新的黄色提示（跨 render 保留）
+  var searchCfg = false;  // 搜索 API 是否已配置（GET /api/search/status）
+  var ddData = null;      // 最新深挖记录（GET /api/item/{id}/deepdive）
 
   function esc(s) {
     return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) {
@@ -160,6 +163,16 @@ button[disabled]{opacity:.55;cursor:default}
               '<div class="hint">' + esc(feas.reason || "") + "</div></div>";
     }
 
+    html += '<div class="panel"><h2>深挖（联网检索）</h2>';
+    if (searchCfg) {
+      html += '<div class="bar"><button id="ddBtn">深挖（联网检索）</button>' +
+              '<span class="hint" id="ddHint"></span></div>';
+    } else {
+      html += '<div class="bar"><button id="ddBtn" disabled>深挖（联网检索）</button>' +
+              '<span class="hint">未配置搜索 API（SEARCH_API_KEY）</span></div>';
+    }
+    html += '<div id="ddBox"></div></div>';
+
     html += '<div class="panel"><h2>我的备注</h2>' +
             '<textarea id="note" placeholder="写一句你的判断，比如：可查越南海关 HS3926…（失焦自动保存）">' +
             esc(d.note || "") + "</textarea>" +
@@ -177,6 +190,9 @@ button[disabled]{opacity:.55;cursor:default}
     document.getElementById("fav").addEventListener("click", toggleFav);
     var reBtn = document.getElementById("reBtn");
     if (reBtn) reBtn.addEventListener("click", function () { startReanalyze(reBtn); });
+    var ddBtn = document.getElementById("ddBtn");
+    if (ddBtn && searchCfg) ddBtn.addEventListener("click", function () { startDeepdive(ddBtn); });
+    renderDD();
   }
 
   function saveNote(text) {
@@ -231,6 +247,102 @@ button[disabled]{opacity:.55;cursor:default}
       });
   }
 
+  function ddHtml() {
+    var dd = ddData;
+    if (!dd || !dd.status) return "";
+    var d = dd.data || {};
+    var buyers = d.buyer_candidates || [];
+    var quotes = d.quote_references || [];
+    var h = '<div class="meta" style="margin-top:10px">深挖模型：' + esc(dd.model || "—") +
+            " · 花费 ¥" + Number(dd.cost || 0).toFixed(4) +
+            " · " + fmt(dd.analyzed_at) +
+            " · 检索来源 " + (dd.search_count || 0) + " 条" +
+            (dd.status === "ok" ? "" :
+              " · <span class=\"err\">" + (dd.status === "rejected" ? "校验未通过" : "加工失败") + "</span>") +
+            "</div>";
+    if (dd.status !== "ok" && dd.reasons && dd.reasons.length) {
+      h += "<ul>";
+      dd.reasons.forEach(function (r) { h += '<li class="err">' + esc(r) + "</li>"; });
+      h += "</ul>";
+    }
+    if (d.summary) h += '<div class="big">' + esc(d.summary) + "</div>";
+    if (!buyers.length && !quotes.length) {
+      h += '<p class="hint">本次检索未找到可核实的具体买家/报价。</p>';
+    }
+    if (buyers.length) {
+      h += '<h2 style="margin-top:10px">具体买家</h2><ul>';
+      buyers.forEach(function (b) {
+        h += "<li>" + esc(b.name || "—") +
+             (b.type ? ' <span class="chip">' + esc(b.type) + "</span>" : "") +
+             (b.evidence_url ? ' · <a href="' + esc(b.evidence_url) +
+               '" target="_blank" rel="noopener">证据链接</a>' : "") +
+             (b.evidence ? '<div class="hint">' + esc(b.evidence) + "</div>" : "") + "</li>";
+      });
+      h += "</ul>";
+    }
+    if (quotes.length) {
+      h += '<h2 style="margin-top:10px">报价参考</h2><ul>';
+      quotes.forEach(function (q) {
+        h += "<li>" + esc(q.product || "—") + "：<span class=\"mono\">" +
+             esc(q.price || "—") + "</span>" +
+             (q.source_url ? ' · <a href="' + esc(q.source_url) +
+               '" target="_blank" rel="noopener">来源链接</a>' : "") +
+             (q.note ? '<div class="hint">' + esc(q.note) + "</div>" : "") + "</li>";
+      });
+      h += "</ul>";
+    }
+    var steps = d.next_steps || [];
+    if (steps.length) {
+      h += '<h2 style="margin-top:10px">下一步</h2><ul>';
+      steps.forEach(function (s) { h += "<li>" + esc(s) + "</li>"; });
+      h += "</ul>";
+    }
+    if (d.limits) h += '<div class="warnbox" style="margin-top:10px">' + esc(d.limits) + "</div>";
+    if (dd.search_queries && dd.search_queries.length) {
+      h += '<div class="hint" style="margin-top:8px">检索词：' +
+           esc(dd.search_queries.join(" ｜ ")) + "</div>";
+    }
+    return h;
+  }
+  function renderDD() {
+    var box = document.getElementById("ddBox");
+    if (box && ddData && ddData.status) box.innerHTML = ddHtml();
+  }
+
+  function startDeepdive(btn) {
+    btn.disabled = true;
+    btn.textContent = "检索+加工中…（约 20–60 秒）";
+    var hint = document.getElementById("ddHint");
+    if (hint) hint.textContent = "";
+    fetch("/api/item/" + id + "/deepdive", {method: "POST"})
+      .then(function (r) {
+        return r.json().then(function (j) { return {code: r.status, j: j}; });
+      })
+      .then(function (res) {
+        var done = function () {
+          var b = document.getElementById("ddBtn");
+          if (b) { b.disabled = false; b.textContent = "深挖（联网检索）"; }
+        };
+        var j = res.j || {};
+        if (res.code === 200 && (j.ok || j.status)) {
+          // ok / rejected / failed 都已落库：重取最新记录渲染结果面板（不用 alert）
+          return fetch("/api/item/" + id + "/deepdive")
+            .then(function (r) { return r.json(); })
+            .then(function (dd) { ddData = dd; renderDD(); done(); });
+        }
+        var h = document.getElementById("ddHint");
+        if (h) h.innerHTML = '<span class="err">' + esc(
+          j.error || ("深挖失败（HTTP " + res.code + "），请稍后重试")) + "</span>";
+        done();
+      })
+      .catch(function () {
+        var h = document.getElementById("ddHint");
+        if (h) h.innerHTML = '<span class="err">深挖失败：网络错误，请确认服务在运行后重试</span>';
+        var b = document.getElementById("ddBtn");
+        if (b) { b.disabled = false; b.textContent = "深挖（联网检索）"; }
+      });
+  }
+
   var favConfirmTimer = null;
   function toggleFav() {
     var b = document.getElementById("fav");
@@ -268,12 +380,24 @@ button[disabled]{opacity:.55;cursor:default}
   }
 
   if (!id) { main.innerHTML = '<p class="err">缺少 id 参数</p>'; return; }
-  fetch("/api/item/" + id).then(function (r) {
-    if (!r.ok) throw new Error("HTTP " + r.status);
-    return r.json();
-  }).then(render).catch(function (e) {
-    main.innerHTML = '<p class="err">加载失败：' + esc(e.message) + "</p>";
-  });
+  fetch("/api/search/status").then(function (r) { return r.json(); })
+    .then(function (j) { searchCfg = !!j.configured; })
+    .catch(function () { searchCfg = false; })
+    .then(function () { return fetch("/api/item/" + id); })
+    .then(function (r) {
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      return r.json();
+    })
+    .then(function (d) {
+      render(d);
+      return fetch("/api/item/" + id + "/deepdive")
+        .then(function (r) { return r.json(); })
+        .catch(function () { return {data: null}; });
+    })
+    .then(function (dd) { ddData = dd; renderDD(); })
+    .catch(function (e) {
+      main.innerHTML = '<p class="err">加载失败：' + esc(e.message) + "</p>";
+    });
 })();
 </script>
 </body>
